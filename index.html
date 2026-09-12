@@ -15,8 +15,8 @@
   <h1>プラレール シールメーカー</h1>
   <div class="topbar-actions">
     <button id="btn-new" class="btn ghost" title="すべての設定を初期状態に戻します">新規</button>
-    <label class="btn ghost" for="file-project">読み込み</label>
-    <input type="file" id="file-project" accept="application/json" hidden>
+    <button id="btn-load" class="btn ghost">読み込み</button>
+    <input type="file" id="file-project" accept="application/json" hidden aria-label="プロジェクトファイル">
     <button id="btn-save-project" class="btn ghost">プロジェクト保存</button>
     <button id="btn-copy-project" class="btn ghost" title="プロジェクトの JSON をクリップボードにコピー（ダウンロードできない環境向け）">JSON コピー</button>
     <button id="btn-help" class="btn ghost">使い方</button>
@@ -113,16 +113,17 @@
     <section class="card">
       <h2>3. シール</h2>
       <div class="add-row">
-        <select id="add-type">
+        <select id="add-type" aria-label="追加するシールの種類">
           <option value="sign">行先表示（方向幕 / LED）</option>
           <option value="text">文字（車番・ロゴなど）</option>
           <option value="image">画像</option>
         </select>
         <button id="btn-add" class="btn primary">追加</button>
-        <select id="add-preset" title="プリセットから追加"></select>
+        <select id="add-preset" aria-label="プリセットから追加"></select>
       </div>
-      <ul id="item-list" class="item-list"></ul>
-      <p id="layout-warn" class="warn" hidden></p>
+      <ul id="item-list" class="item-list" role="listbox" aria-label="シールの一覧"></ul>
+      <p class="note">↑↓ で選択、Delete で削除、Alt+↑↓ で並べ替え、Ctrl+D で複製</p>
+      <p id="layout-warn" class="warn" role="status" hidden></p>
     </section>
 
     <section class="card" id="editor-card" hidden>
@@ -136,9 +137,9 @@
     <div class="preview-toolbar">
       <span id="sheet-info" class="info"></span>
       <div class="zoom">
-        <button id="zoom-out" class="btn ghost" title="縮小">−</button>
-        <span id="zoom-label">100%</span>
-        <button id="zoom-in" class="btn ghost" title="拡大">＋</button>
+        <button id="zoom-out" class="btn ghost" aria-label="縮小">−</button>
+        <span id="zoom-label" aria-live="polite">100%</span>
+        <button id="zoom-in" class="btn ghost" aria-label="拡大">＋</button>
         <button id="zoom-fit" class="btn ghost">全体</button>
       </div>
       <div class="export">
@@ -147,7 +148,7 @@
       </div>
     </div>
     <div class="preview-scroll" id="preview-scroll">
-      <canvas id="preview"></canvas>
+      <canvas id="preview" role="img" aria-label="シートのプレビュー"></canvas>
     </div>
   </section>
 </main>

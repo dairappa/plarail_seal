@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "http-server -p 8080 -c-1 .",
-    "test": "node tests/smoke.mjs"
+    "test": "node tests/smoke.mjs && node tests/a11y.mjs",
+    "test:a11y": "node tests/a11y.mjs"
   },
   "devDependencies": {
     "http-server": "^14.1.1",

@@ -46,8 +46,16 @@
 ```sh
 npm install        # http-server と playwright（テスト用）
 npm start          # http://localhost:8080
-npm test           # Playwright によるスモークテスト（書き出しピクセル数・配置・自動保存など）
+npm test           # Playwright によるスモークテスト + アクセシビリティテスト
+npm run test:a11y  # アクセシビリティテストのみ
 ```
+
+テストは 2 本あります。
+
+- `tests/smoke.mjs` … 書き出しピクセル数・配置・キャリブレーション・自動保存
+- `tests/a11y.mjs` … キーボード操作。すべての操作要素にアクセシブルネームがあること、Tab 順が画面の並びどおりであること、
+  値を変えて Tab しても次の欄へ進むこと（フォーム再構築でフォーカスを失わない）、シール一覧が矢印キー / Delete / Ctrl+D / Alt+↑↓ で操作できること、
+  色見本がグループで 1 つの Tab 停止であること、ダイアログを閉じたときフォーカスが戻ること
 
 - `index.html` … 画面
 - `js/model.js` … データモデル・用紙 / フォント / プリセット定義
@@ -55,7 +63,7 @@ npm test           # Playwright によるスモークテスト（書き出しピ
 - `js/render.js` … キャンバス描画（プレビューと書き出しで共通、単位は mm）
 - `js/export.js` … PNG（pHYs で dpi 埋め込み）・印刷
 - `js/storage.js` … localStorage / JSON 入出力
-- `js/app.js` … UI
+- `js/app.js` … UI（再描画は次のタスクに遅延し、`data-key` でフォーカスを復元する）
 
 ### GitHub Pages への公開
 

@@ -84,6 +84,7 @@ function init() {
   });
   $('btn-print').addEventListener('click', async () => { await ensureFonts(); printSheet(project); });
   $('btn-save-project').addEventListener('click', () => exportProjectJSON(project));
+  $('btn-load').addEventListener('click', () => $('file-project').click());
   $('file-project').addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
     try { project = await readProjectFile(f); selectedId = project.items[0]?.id || null; update({ fit: true }); }
@@ -123,6 +124,7 @@ function init() {
     exportCanvas: () => exportCanvas(project),
     ensureFonts,
     update,
+    flush,
   };
 }
 
@@ -149,14 +151,45 @@ async function ensureFonts() {
 }
 
 // ------------------------------------------------------------------ 更新
+// 再描画は次のタスクまで遅らせる。change イベント（Tab で離れた瞬間）に同期でフォームを
+// 作り直すと、ブラウザが移そうとしていた次の要素ごと消えてフォーカスが失われるため。
+let renderTimer = null;
+let focusRequest = null;   // 再描画後にフォーカスを当てたい data-key
+
 function update(opts = {}) {
   if (opts.fit) zoom = 1;
+  saveLocal(project);
+  if (renderTimer) return;
+  renderTimer = setTimeout(() => { renderTimer = null; renderAll(); }, 0);
+}
+
+/** テスト・同期が必要な場面用: 保留中の再描画を即時に実行 */
+function flush() {
+  if (renderTimer) { clearTimeout(renderTimer); renderTimer = null; renderAll(); }
+}
+
+function renderAll() {
+  const active = document.activeElement;
+  const key = focusRequest || active?.dataset?.key || (active?.id ? '#' + active.id : null);
+  const selectAll = !focusRequest && active && (active.tagName === 'INPUT' && ['text', 'number'].includes(active.type) || active.tagName === 'TEXTAREA');
+  focusRequest = null;
   syncSheetForm();
   renderList();
   renderEditor();
   renderPreview();
-  saveLocal(project);
-  ensureFonts().then(loaded => renderPreview());
+  restoreFocus(key, selectAll);
+  ensureFonts().then(() => renderPreview());
+}
+
+function requestFocus(key) { focusRequest = key; }
+
+function restoreFocus(key, selectAll) {
+  if (!key) return;
+  const el = key.startsWith('#') ? document.getElementById(key.slice(1))
+    : document.querySelector(`[data-key="${CSS.escape(key)}"]`);
+  if (!el || el === document.activeElement) return;
+  el.focus({ preventScroll: true });
+  if (selectAll && typeof el.select === 'function') el.select();
 }
 
 function syncSheetForm() {
@@ -198,30 +231,83 @@ function syncSheetForm() {
 function renderList() {
   const ul = $('item-list');
   ul.innerHTML = '';
+  if (selectedId && !project.items.some(i => i.id === selectedId)) selectedId = project.items[0]?.id || null;
+  const tabId = selectedId || project.items[0]?.id;
   project.items.forEach((it, idx) => {
     const li = document.createElement('li');
+    li.setAttribute('role', 'option');
+    li.dataset.key = 'item:' + it.id;
+    li.tabIndex = it.id === tabId ? 0 : -1;          // 一覧全体で 1 つのタブ停止
+    li.setAttribute('aria-selected', String(it.id === selectedId));
     if (it.id === selectedId) li.classList.add('active');
     const sw = document.createElement('canvas');
-    sw.className = 'swatch';
+    sw.className = 'swatch'; sw.setAttribute('aria-hidden', 'true');
     renderItemThumb(sw, it, 56 / it.w * 2);
     const name = document.createElement('span'); name.className = 'name'; name.textContent = itemLabel(it);
     if (signIsBlank(it)) { name.textContent += '（無地）'; name.title = '表示するパーツがありません。背景色だけで印刷されます'; }
     const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = `${it.w}×${it.h} mm ×${it.copies}`;
+    li.setAttribute('aria-label', `${name.textContent}、${it.w}×${it.h} mm、${it.copies} 枚`);
     const actions = document.createElement('span'); actions.className = 'actions';
     const mk = (label, title, fn) => {
-      const b = document.createElement('button'); b.textContent = label; b.title = title;
+      const b = document.createElement('button'); b.textContent = label; b.title = title; b.setAttribute('aria-label', title);
+      b.tabIndex = -1;                                  // キーボードは li 上のショートカットで操作
       b.addEventListener('click', e => { e.stopPropagation(); fn(); }); return b;
     };
     actions.append(
-      mk('↑', '上へ', () => { if (idx > 0) { [project.items[idx - 1], project.items[idx]] = [project.items[idx], project.items[idx - 1]]; update(); } }),
-      mk('↓', '下へ', () => { if (idx < project.items.length - 1) { [project.items[idx + 1], project.items[idx]] = [project.items[idx], project.items[idx + 1]]; update(); } }),
-      mk('⧉', '複製', () => { const c = makeItem(it.type, it); c.name = it.name ? it.name + ' コピー' : ''; project.items.splice(idx + 1, 0, c); selectedId = c.id; update(); }),
-      mk('✕', '削除', () => { project.items.splice(idx, 1); if (selectedId === it.id) selectedId = project.items[0]?.id || null; update(); }),
+      mk('↑', '上へ', () => moveItem(idx, -1)),
+      mk('↓', '下へ', () => moveItem(idx, 1)),
+      mk('⧉', '複製', () => duplicateItem(idx)),
+      mk('✕', '削除', () => deleteItem(idx)),
     );
     li.append(sw, name, meta, actions);
-    li.addEventListener('click', () => { selectedId = it.id; renderList(); renderEditor(); });
+    li.addEventListener('click', () => selectItem(it.id));
+    li.addEventListener('focus', () => { if (selectedId !== it.id) selectItem(it.id); });
+    li.addEventListener('keydown', e => {
+      const alt = e.altKey, mod = e.ctrlKey || e.metaKey;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const d = e.key === 'ArrowDown' ? 1 : -1;
+        if (alt) { moveItem(idx, d); return; }
+        const next = project.items[idx + d];
+        if (next) selectItem(next.id);
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault(); deleteItem(idx);
+      } else if (mod && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault(); duplicateItem(idx);
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault(); selectItem(it.id);
+      }
+    });
     ul.appendChild(li);
   });
+}
+
+function selectItem(id) {
+  selectedId = id;
+  requestFocus('item:' + id);
+  update();
+}
+function moveItem(idx, d) {
+  const j = idx + d;
+  if (j < 0 || j >= project.items.length) return;
+  [project.items[j], project.items[idx]] = [project.items[idx], project.items[j]];
+  requestFocus('item:' + project.items[j].id);
+  update();
+}
+function duplicateItem(idx) {
+  const it = project.items[idx];
+  const c = makeItem(it.type, it); c.name = it.name ? it.name + ' コピー' : '';
+  project.items.splice(idx + 1, 0, c); selectedId = c.id;
+  requestFocus('item:' + c.id);
+  update();
+}
+function deleteItem(idx) {
+  const it = project.items[idx];
+  project.items.splice(idx, 1);
+  if (selectedId === it.id) selectedId = (project.items[idx] || project.items[idx - 1])?.id || null;
+  if (selectedId) requestFocus('item:' + selectedId); else requestFocus('#btn-add');
+  update();
+  toast(`「${itemLabel(it)}」を削除しました`);
 }
 
 // ------------------------------------------------------------------ 編集フォーム
@@ -233,10 +319,22 @@ function renderEditor() {
   $('editor-title').textContent = itemLabel(it);
   const root = $('editor');
   root.innerHTML = '';
+  let section = '';
 
-  const sec = (title) => { const d = document.createElement('div'); d.className = 'editor-section'; if (title) { const h = document.createElement('h4'); h.textContent = title; d.appendChild(h); } root.appendChild(d); return d; };
+  const sec = (title) => { section = title || ''; const d = document.createElement('div'); d.className = 'editor-section'; if (title) { const h = document.createElement('h4'); h.textContent = title; d.appendChild(h); } root.appendChild(d); return d; };
   const row = (parent, ...els) => { const r = document.createElement('div'); r.className = 'row'; r.append(...els); parent.appendChild(r); return r; };
-  const field = (label, input) => { const f = document.createElement('div'); f.className = 'field'; const l = document.createElement('label'); l.textContent = label; f.append(l, input); return f; };
+  // data-key: 再描画後にフォーカスを戻すための安定した識別子（項目 id + 区画 + ラベル）
+  let seq = 0;
+  const keyFor = (label) => `${it.id}:${section}:${label}`;
+  const idFor = () => `ed-${it.id}-${seq++}`;
+  const field = (label, input) => {
+    const f = document.createElement('div'); f.className = 'field';
+    const l = document.createElement('label'); l.textContent = label;
+    if (!input.id) input.id = idFor();
+    l.htmlFor = input.id;
+    if (!input.dataset.key) input.dataset.key = keyFor(label);
+    f.append(l, input); return f;
+  };
   const num = (get, set, step = 0.1, min = 0) => {
     const i = document.createElement('input'); i.type = 'number'; i.step = step; i.min = min; i.value = get();
     i.addEventListener('change', () => { const v = Number(i.value); if (Number.isFinite(v)) { set(v); update(); } }); return i;
@@ -255,6 +353,7 @@ function renderEditor() {
   const check = (label, get, set) => {
     const l = document.createElement('label'); l.className = 'check';
     const c = document.createElement('input'); c.type = 'checkbox'; c.checked = !!get();
+    c.id = idFor(); c.dataset.key = keyFor(label);
     c.addEventListener('change', () => { set(c.checked); update(); });
     l.append(c, document.createTextNode(' ' + label)); return l;
   };
@@ -263,15 +362,31 @@ function renderEditor() {
     const l = document.createElement('label'); l.textContent = label;
     const cf = document.createElement('div'); cf.className = 'color-field';
     const c = document.createElement('input'); c.type = 'color'; c.value = get();
+    c.id = idFor(); l.htmlFor = c.id; c.dataset.key = keyFor(label);
     const t = document.createElement('input'); t.type = 'text'; t.value = get();
+    t.setAttribute('aria-label', `${label}（16進カラーコード）`); t.dataset.key = keyFor(label + ':hex');
+    t.pattern = '#[0-9a-fA-F]{6}'; t.spellcheck = false;
     c.addEventListener('input', () => { t.value = c.value; set(c.value); renderPreview(); });
     c.addEventListener('change', () => update());
     t.addEventListener('change', () => { if (/^#[0-9a-f]{6}$/i.test(t.value)) { c.value = t.value; set(t.value); update(); } });
+    // 色見本: グループで 1 つのタブ停止、←→ で移動、Enter / Space で選択
     const sw = document.createElement('div'); sw.className = 'swatches';
-    for (const col of LED_SWATCHES) {
-      const b = document.createElement('button'); b.type = 'button'; b.style.background = col; b.title = col;
-      b.addEventListener('click', () => { c.value = col; t.value = col; set(col); update(); }); sw.appendChild(b);
-    }
+    sw.setAttribute('role', 'group'); sw.setAttribute('aria-label', `${label}の色見本`);
+    const btns = LED_SWATCHES.map((col, i) => {
+      const b = document.createElement('button'); b.type = 'button'; b.style.background = col;
+      b.setAttribute('aria-label', `${label}を ${col} にする`);
+      b.tabIndex = i === 0 ? 0 : -1; b.dataset.key = keyFor(label + ':sw' + i);
+      b.addEventListener('click', () => { c.value = col; t.value = col; set(col); update(); });
+      b.addEventListener('keydown', e => {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        e.preventDefault();
+        const j = (i + (e.key === 'ArrowRight' ? 1 : -1) + btns.length) % btns.length;
+        btns.forEach((x, k) => { x.tabIndex = k === j ? 0 : -1; });
+        btns[j].focus();
+      });
+      return b;
+    });
+    sw.append(...btns);
     cf.append(c, t, sw); wrap.append(l, cf); return wrap;
   };
   const fontSel = () => sel(FONTS.map(f => [f.id, f.name]), () => it.font, v => {
@@ -343,7 +458,7 @@ function renderEditor() {
     s4.appendChild(enNote);
   } else if (it.type === 'text') {
     const s1 = sec('文字');
-    const ta = document.createElement('textarea'); ta.value = it.text;
+    const ta = document.createElement('textarea'); ta.value = it.text; ta.dataset.key = keyFor('内容');
     ta.addEventListener('input', () => { it.text = ta.value; renderPreview(); saveLocal(project); });
     ta.addEventListener('change', () => update());
     s1.appendChild(field('内容（改行で複数行）', ta));
@@ -352,7 +467,7 @@ function renderEditor() {
     row(s1, field('揃え', sel([['left', '左'], ['center', '中央'], ['right', '右']], () => it.align, v => { it.align = v; })), field('内側余白 %', num(() => it.padding, v => { it.padding = v; }, 1, 0)), field('字間 %', num(() => it.letterSpacing, v => { it.letterSpacing = v; }, 1, -20)));
   } else if (it.type === 'image') {
     const s1 = sec('画像');
-    const f = document.createElement('input'); f.type = 'file'; f.accept = 'image/*';
+    const f = document.createElement('input'); f.type = 'file'; f.accept = 'image/*'; f.dataset.key = keyFor('画像ファイル');
     f.addEventListener('change', async () => { const file = f.files[0]; if (file) { it.src = await readImageFile(file); update(); } });
     s1.appendChild(field('画像ファイル（PNG/JPEG/SVG）', f));
     row(s1, field('収め方', sel([['cover', '枠いっぱい（はみ出しは切る）'], ['contain', '全体を収める']], () => it.fit, v => { it.fit = v; })), color('背景色', () => it.bg, v => { it.bg = v; }));
@@ -364,6 +479,7 @@ function renderEditor() {
   const thumbWrap = sec('拡大プレビュー');
   const th = document.createElement('canvas');
   th.style.width = '100%'; th.style.border = '1px solid #ccc'; th.style.imageRendering = 'auto';
+  th.setAttribute('role', 'img'); th.setAttribute('aria-label', `${itemLabel(it)} の拡大プレビュー`);
   renderItemThumb(th, it, Math.max(20, 1200 / Math.max(it.w, 1)));
   thumbWrap.appendChild(th);
 }
