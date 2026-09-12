@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>プラレール シールメーカー</title>
+<meta name="description" content="プラレール用の方向幕などの小さなシールを、コンビニ（ローソン・ファミマ）のシールプリントや A4 シール台紙向けに原寸で作成・書き出しする Web アプリ">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+JP:wght@400;700;900&family=BIZ+UDPGothic:wght@400;700&family=M+PLUS+1p:wght@500;800&family=Zen+Kaku+Gothic+New:wght@500;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>プラレール シールメーカー</h1>
+  <div class="topbar-actions">
+    <button id="btn-new" class="btn ghost" title="すべての設定を初期状態に戻します">新規</button>
+    <label class="btn ghost" for="file-project">読み込み</label>
+    <input type="file" id="file-project" accept="application/json" hidden>
+    <button id="btn-save-project" class="btn ghost">プロジェクト保存</button>
+    <button id="btn-copy-project" class="btn ghost" title="プロジェクトの JSON をクリップボードにコピー（ダウンロードできない環境向け）">JSON コピー</button>
+    <button id="btn-help" class="btn ghost">使い方</button>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ============ 左パネル ============ -->
+  <aside class="panel">
+
+    <section class="card">
+      <h2>1. 用紙と印刷方法</h2>
+      <div class="field">
+        <label for="paper-preset">用紙</label>
+        <select id="paper-preset"></select>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="paper-w">幅 mm</label>
+          <input type="number" id="paper-w" step="0.1" min="20">
+        </div>
+        <div class="field">
+          <label for="paper-h">高さ mm</label>
+          <input type="number" id="paper-h" step="0.1" min="20">
+        </div>
+        <div class="field">
+          <label for="paper-margin">余白 mm</label>
+          <input type="number" id="paper-margin" step="0.5" min="0">
+        </div>
+      </div>
+      <p id="paper-note" class="note"></p>
+
+      <div class="field">
+        <label for="print-mode">印刷方法</label>
+        <select id="print-mode">
+          <option value="cvs-border">コンビニ シールプリント（フチあり）… 推奨</option>
+          <option value="cvs-borderless">コンビニ シールプリント（フチなし）</option>
+          <option value="home">家庭用プリンタ / その他（拡大縮小なし）</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="scale-k">サイズ補正 %</label>
+          <input type="number" id="scale-k" step="0.1" min="50" max="150">
+        </div>
+        <div class="field">
+          <label for="dpi">解像度 dpi</label>
+          <select id="dpi">
+            <option value="300">300</option>
+            <option value="600">600</option>
+          </select>
+        </div>
+      </div>
+      <p class="note" id="scale-note"></p>
+      <details class="calib">
+        <summary>印刷結果からサイズ補正を求める（キャリブレーション）</summary>
+        <p class="note">「ものさし」を入れて試し刷りし、印刷された <b>50 mm</b> の目盛りを実測して入力すると、補正 % を自動で更新します。</p>
+        <div class="row">
+          <div class="field">
+            <label for="calib-measured">実測 mm</label>
+            <input type="number" id="calib-measured" step="0.1" min="10" max="100" placeholder="例: 46.3">
+          </div>
+          <button id="btn-calib" class="btn">補正を計算して適用</button>
+        </div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>2. 配置</h2>
+      <div class="row">
+        <div class="field">
+          <label for="gap">間隔 mm</label>
+          <input type="number" id="gap" step="0.1" min="0">
+        </div>
+        <div class="field">
+          <label for="bleed">塗り足し mm</label>
+          <input type="number" id="bleed" step="0.1" min="0">
+        </div>
+        <div class="field">
+          <label for="marks">カット目印</label>
+          <select id="marks">
+            <option value="corner">トンボ（四隅）</option>
+            <option value="outline">枠線</option>
+            <option value="none">なし</option>
+          </select>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="ruler"> キャリブレーション用ものさし（50 mm）を入れる</label>
+      <label class="check"><input type="checkbox" id="show-unprintable" checked> 印刷されない範囲をプレビューに表示</label>
+      <p class="note">塗り足し＝シールの外側に背景色をはみ出させる幅。切り抜きが多少ずれても白フチが出にくくなります。</p>
+    </section>
+
+    <section class="card">
+      <h2>3. シール</h2>
+      <div class="add-row">
+        <select id="add-type">
+          <option value="sign">行先表示（方向幕 / LED）</option>
+          <option value="text">文字（車番・ロゴなど）</option>
+          <option value="image">画像</option>
+        </select>
+        <button id="btn-add" class="btn primary">追加</button>
+        <select id="add-preset" title="プリセットから追加"></select>
+      </div>
+      <ul id="item-list" class="item-list"></ul>
+      <p id="layout-warn" class="warn" hidden></p>
+    </section>
+
+    <section class="card" id="editor-card" hidden>
+      <h2>4. 編集: <span id="editor-title"></span></h2>
+      <div id="editor"></div>
+    </section>
+  </aside>
+
+  <!-- ============ 右: プレビュー ============ -->
+  <section class="preview">
+    <div class="preview-toolbar">
+      <span id="sheet-info" class="info"></span>
+      <div class="zoom">
+        <button id="zoom-out" class="btn ghost" title="縮小">−</button>
+        <span id="zoom-label">100%</span>
+        <button id="zoom-in" class="btn ghost" title="拡大">＋</button>
+        <button id="zoom-fit" class="btn ghost">全体</button>
+      </div>
+      <div class="export">
+        <button id="btn-png" class="btn primary">PNG を保存（コンビニ用）</button>
+        <button id="btn-print" class="btn">印刷 / PDF（家庭用）</button>
+      </div>
+    </div>
+    <div class="preview-scroll" id="preview-scroll">
+      <canvas id="preview"></canvas>
+    </div>
+  </section>
+</main>
+
+<!-- 使い方 -->
+<dialog id="help">
+  <article>
+    <h2>使い方</h2>
+    <h3>コンビニ（ローソン・ファミマ・ミニストップ）で印刷する</h3>
+    <ol>
+      <li>用紙で <b>L判 / スクエア / 2L判</b> を選び、印刷方法を「コンビニ シールプリント（フチあり）」にします。<br>
+        ※シャープ製マルチコピー機のシール紙はこの 3 サイズのみです。<b>A4 のシール紙はありません。</b></li>
+      <li>シールを追加・編集し、「PNG を保存」でファイルを保存します。</li>
+      <li><a href="https://networkprint.ne.jp/" target="_blank" rel="noopener">ネットワークプリント</a>（会員登録不要）に <b>写真プリント</b> として登録し、店頭で「シール紙」「L判など選んだサイズ」「<b>フチあり</b>」を選んで印刷します。</li>
+      <li>「フチあり」で印刷すると全体が 4〜8% 縮小されるため、このアプリは書き出し時にあらかじめ拡大しています。
+        初回は「ものさし」を入れて試し刷りし、実測値からサイズ補正を求めるとより正確になります。</li>
+    </ol>
+    <h3>家庭用プリンタ / A4 シール台紙で印刷する</h3>
+    <ol>
+      <li>用紙で A4（または台紙の実寸）を選び、印刷方法を「家庭用プリンタ」にします。</li>
+      <li>「印刷 / PDF」を押し、印刷ダイアログで <b>倍率 100%（ページに合わせない）</b>、余白なしに設定して印刷します。</li>
+    </ol>
+    <h3>ヒント</h3>
+    <ul>
+      <li>シールの寸法はキット側の窓や凹みを実測して入力してください。塗り足しを 0.3 mm ほど付けておくと、切り抜きが少しずれても白いフチが出ません。</li>
+      <li>LED 表示は「LED ドット」をオンにすると点灯風の見た目になります。小さなシールでは無効の方が読みやすいこともあります。</li>
+      <li>プロジェクトはブラウザに自動保存されます。別の端末に持ち運ぶときは「プロジェクト保存」で JSON を書き出してください。</li>
+    </ul>
+    <form method="dialog"><button class="btn primary">閉じる</button></form>
+  </article>
+</dialog>
+
+<dialog id="export-dialog">
+  <article>
+    <h2>PNG を書き出しました</h2>
+    <p class="note" id="export-info"></p>
+    <p class="note">ダウンロードが始まらない場合は、下の画像を<b>右クリック（スマホは長押し）→「画像を保存」</b>で保存してください。</p>
+    <img id="export-img" alt="書き出したシート" style="max-width:100%;border:1px solid #ccc;background:#fff">
+    <form method="dialog"><button class="btn primary">閉じる</button></form>
+  </article>
+</dialog>
+
+<dialog id="confirm-new">
+  <article>
+    <h2>初期状態に戻しますか？</h2>
+    <p class="note">現在のシールと設定はすべて破棄されます。残しておきたい場合は先に「プロジェクト保存」してください。</p>
+    <form method="dialog" style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" value="cancel">やめる</button>
+      <button class="btn primary" value="ok">初期状態に戻す</button>
+    </form>
+  </article>
+</dialog>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<div id="print-area" class="print-only"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
