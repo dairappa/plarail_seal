@@ -288,12 +288,23 @@ function renderEditor() {
 
     const s2 = sec('種別（左側）');
     row(s2, field('種別', text(() => it.kind.text, v => { it.kind.text = v; }, '例: 急行')), field('英字', text(() => it.kind.en, v => { it.kind.en = v; }, '例: Express')));
-    row(s2, color('種別の色', () => it.kind.color, v => { it.kind.color = v; }));
-    row(s2, field('スタイル', sel([['plain', '文字のみ'], ['box', '枠付き'], ['fill', '塗りつぶし（文字は背景色）']], () => it.kind.style, v => { it.kind.style = v; })), field('幅の割合 %', num(() => it.kind.ratio, v => { it.kind.ratio = v; }, 1, 0)));
+    row(s2, field('スタイル', sel([['plain', '文字のみ'], ['box', '枠付き'], ['fill', '塗りつぶし']], () => it.kind.style, v => { it.kind.style = v; })), field('幅の割合 %', num(() => it.kind.ratio, v => { it.kind.ratio = v; }, 1, 0)));
+    if (it.kind.style === 'plain') {
+      row(s2, color('文字色', () => it.kind.color, v => { it.kind.color = v; }));
+    } else {
+      row(s2, color(it.kind.style === 'fill' ? '塗りつぶし色' : '枠の色', () => it.kind.color, v => { it.kind.color = v; }), color('文字色', () => it.kind.textColor, v => { it.kind.textColor = v; }));
+      row(s2, field('角丸 %（高さ比）', num(() => it.kind.radius, v => { it.kind.radius = v; }, 1, 0)));
+    }
 
     const s3 = sec('行先（右側）');
     row(s3, field('行先', text(() => it.dest.text, v => { it.dest.text = v; }, '例: 名古屋')), field('英字', text(() => it.dest.en, v => { it.dest.en = v; }, '例: Nagoya')));
     row(s3, color('行先の色', () => it.dest.color, v => { it.dest.color = v; }));
+
+    const s5 = sec('駅ナンバー（行先の右）');
+    row(s5, field('番号（空欄でなし）', text(() => it.station.text, v => { it.station.text = v; }, '例: E01')), field('大きさ %（行の高さ比）', num(() => it.station.size, v => { it.station.size = v; }, 1, 30)));
+    row(s5, field('スタイル', sel([['box', '角丸枠'], ['fill', '塗りつぶし']], () => it.station.style, v => { it.station.style = v; })), field('角丸 %', num(() => it.station.radius, v => { it.station.radius = v; }, 1, 0)));
+    row(s5, color('枠 / 塗りの色', () => it.station.color, v => { it.station.color = v; }), color('文字色', () => it.station.textColor, v => { it.station.textColor = v; }));
+    s5.appendChild(check('英字と数字を 2 段にする（E / 01）', () => it.station.twoLine, v => { it.station.twoLine = v; }));
 
     const s4 = sec('英字行');
     row(s4, field('英字行の高さ %（0 でなし）', num(() => it.enRatio, v => { it.enRatio = v; }, 1, 0)), color('英字の色', () => it.enColor, v => { it.enColor = v; }));

@@ -49,8 +49,9 @@ const SIGN_BASE = {
   bg: '#000000', font: 'Noto Sans JP', weight: 700,
   padding: 8, colGap: 6, letterSpacing: 0,
   ledDots: false, ledRows: 24,
-  kind: { text: '普通', color: '#ffffff', style: 'plain', ratio: 32, en: 'Local' },
+  kind: { text: '普通', color: '#ffffff', textColor: '#000000', style: 'plain', ratio: 32, radius: 0, en: 'Local' },
   dest: { text: '名古屋', color: '#ff9a00', en: 'Nagoya' },
+  station: { text: '', twoLine: true, style: 'box', color: '#2f4fd0', textColor: '#ffffff', size: 95, radius: 18 },
   enRatio: 36, enColor: '#ffffff',
 };
 
@@ -68,16 +69,30 @@ const IMAGE_BASE = {
 export const PRESETS = [
   {
     id: 'kintetsu-1a-led',
-    name: '近鉄 1A系 / 8A系 側面 LED 表示（普通 名古屋）',
-    item: { ...SIGN_BASE, name: '近鉄 側面LED 普通 名古屋' },
+    name: '近鉄 1A系 / 8A系 側面 LED 表示（普通 名古屋 E01）',
+    item: {
+      ...SIGN_BASE, name: '近鉄 側面LED 普通 名古屋',
+      kind: { text: '普通', color: '#2f4fd0', textColor: '#ffffff', style: 'fill', ratio: 30, radius: 0, en: '' },
+      dest: { text: '名古屋', color: '#ffffff', en: 'Nagoya' },
+      station: { text: 'E01', twoLine: true, style: 'box', color: '#2f4fd0', textColor: '#ffffff', size: 95, radius: 18 },
+    },
   },
   {
     id: 'kintetsu-1a-led-exp',
     name: '近鉄 側面 LED 表示（急行 大阪難波）',
     item: {
       ...SIGN_BASE, name: '近鉄 側面LED 急行 大阪難波',
-      kind: { text: '急行', color: '#ff2d2d', style: 'plain', ratio: 32, en: 'Express' },
+      kind: { text: '急行', color: '#ff2d2d', textColor: '#000000', style: 'plain', ratio: 32, radius: 0, en: 'Express' },
       dest: { text: '大阪難波', color: '#ff9a00', en: 'Osaka-Namba' },
+    },
+  },
+  {
+    id: 'kintetsu-exp-orange',
+    name: '近鉄 側面 LED 表示（急行 宇治山田・橙塗り種別）',
+    item: {
+      ...SIGN_BASE, name: '近鉄 側面LED 急行 宇治山田',
+      kind: { text: '急行', color: '#f08a1a', textColor: '#000000', style: 'fill', ratio: 34, radius: 12, en: 'Express' },
+      dest: { text: '宇治山田', color: '#ffffff', en: 'Ujiyamada' },
     },
   },
   {
@@ -85,7 +100,7 @@ export const PRESETS = [
     name: 'LED ドット風（DotGothic16・ドット効果あり）',
     item: {
       ...SIGN_BASE, name: 'LED ドット風', font: 'DotGothic16', weight: 400, ledDots: true, ledRows: 24,
-      kind: { text: '快速急行', color: '#ffe600', style: 'plain', ratio: 36, en: 'Rapid Exp.' },
+      kind: { text: '快速急行', color: '#ffe600', textColor: '#000000', style: 'plain', ratio: 36, radius: 0, en: 'Rapid Exp.' },
       dest: { text: '鳥羽', color: '#ff9a00', en: 'Toba' },
     },
   },
@@ -94,7 +109,7 @@ export const PRESETS = [
     name: '幕式 方向幕（白地・黒文字）',
     item: {
       ...SIGN_BASE, name: '幕式 方向幕', bg: '#ffffff',
-      kind: { text: '急行', color: '#d40000', style: 'fill', ratio: 30, en: '' },
+      kind: { text: '急行', color: '#d40000', textColor: '#ffffff', style: 'fill', ratio: 30, radius: 0, en: '' },
       dest: { text: '大阪上本町', color: '#000000', en: 'Osaka-Uehommachi' },
       enRatio: 30, enColor: '#000000',
     },
@@ -104,7 +119,7 @@ export const PRESETS = [
     name: '幕式 行先のみ（英字なし）',
     item: {
       ...SIGN_BASE, name: '幕式 行先のみ', bg: '#ffffff',
-      kind: { text: '', color: '#000000', style: 'plain', ratio: 0, en: '' },
+      kind: { text: '', color: '#000000', textColor: '#000000', style: 'plain', ratio: 0, radius: 0, en: '' },
       dest: { text: '賢島', color: '#000000', en: '' },
       enRatio: 0,
     },
@@ -159,7 +174,9 @@ export function normalizeProject(raw) {
     const m = JSON.parse(JSON.stringify({ ...base, ...it }));
     if (it.type === 'sign') {
       m.kind = { ...SIGN_BASE.kind, ...(it.kind || {}) };
+      if (it.kind && it.kind.textColor == null) m.kind.textColor = it.kind.style === 'fill' ? (it.bg || '#000000') : m.kind.color;
       m.dest = { ...SIGN_BASE.dest, ...(it.dest || {}) };
+      m.station = { ...SIGN_BASE.station, ...(it.station || {}) };
     }
     if (!m.id) m.id = uid();
     return m;

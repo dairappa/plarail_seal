@@ -226,15 +226,18 @@ function drawSignContent(ctx, item, x, y, s) {
   if (hasKind && ratio > 0) {
     const kx = inner.x, kw = kindW;
     const style = item.kind.style || 'plain';
-    let textColor = item.kind.color;
+    // 文字のみ: 種別色で文字を描く / 枠付き・塗りつぶし: 文字色は別指定
+    const textColor = style === 'plain' ? item.kind.color : (item.kind.textColor || item.kind.color);
+    const radius = Math.min(inner.h / 2, inner.h * ((item.kind.radius || 0) / 100));
     if (style === 'fill') {
       ctx.fillStyle = item.kind.color;
-      ctx.fillRect(kx, inner.y, kw, inner.h);
-      textColor = item.bg || '#000000';
+      roundRect(ctx, kx, inner.y, kw, inner.h, radius);
+      ctx.fill();
     } else if (style === 'box') {
       ctx.strokeStyle = item.kind.color;
       ctx.lineWidth = Math.max(0.5, inner.h * 0.04);
-      ctx.strokeRect(kx + ctx.lineWidth / 2, inner.y + ctx.lineWidth / 2, kw - ctx.lineWidth, inner.h - ctx.lineWidth);
+      roundRect(ctx, kx + ctx.lineWidth / 2, inner.y + ctx.lineWidth / 2, kw - ctx.lineWidth, inner.h - ctx.lineWidth, radius);
+      ctx.stroke();
     }
     const ipad = style === 'plain' ? 0 : inner.h * 0.08;
     const kbox = { x: kx + ipad, y: inner.y + ipad, w: kw - 2 * ipad, h: inner.h - 2 * ipad };
@@ -242,20 +245,64 @@ function drawSignContent(ctx, item, x, y, s) {
       const jp = { ...kbox, h: jpH - ipad };
       const en = { x: kbox.x, y: inner.y + jpH + rowGap, w: kbox.w, h: enH - ipad };
       fitText(ctx, item.kind.text, jp, item, textColor);
-      fitText(ctx, item.kind.en, en, item, style === 'fill' ? textColor : (item.enColor || textColor), 'center', { heightRatio: 0.85 });
+      fitText(ctx, item.kind.en, en, item, style === 'plain' ? (item.enColor || textColor) : textColor, 'center', { heightRatio: 0.85 });
     } else {
       fitText(ctx, item.kind.text, kbox, item, textColor);
     }
   }
 
+  // 駅ナンバー（行先の右、日本語行の高さに合わせた角丸枠）
+  const st = item.station || {};
+  const hasStation = !!(st.text && String(st.text).trim());
+  const rowH = hasEn ? jpH : inner.h;
+  const stSize = hasStation ? rowH * (Math.min(150, Math.max(30, st.size ?? 95)) / 100) : 0;
+  const stGap = hasStation ? inner.h * 0.1 : 0;
+  const destW2 = destW - stSize - stGap;
+
   // 行先
   const dx = inner.x + kindW + colGap;
   if (hasEn) {
-    fitText(ctx, item.dest.text, { x: dx, y: inner.y, w: destW, h: jpH }, item, item.dest.color);
-    fitText(ctx, item.dest.en, { x: dx, y: inner.y + jpH + rowGap, w: destW, h: enH }, item, item.enColor || item.dest.color, 'center', { heightRatio: 0.85 });
+    fitText(ctx, item.dest.text, { x: dx, y: inner.y, w: destW2, h: jpH }, item, item.dest.color);
+    fitText(ctx, item.dest.en, { x: dx, y: inner.y + jpH + rowGap, w: destW2, h: enH }, item, item.enColor || item.dest.color, 'center', { heightRatio: 0.85 });
   } else {
-    fitText(ctx, item.dest.text, { x: dx, y: inner.y, w: destW, h: inner.h }, item, item.dest.color);
+    fitText(ctx, item.dest.text, { x: dx, y: inner.y, w: destW2, h: inner.h }, item, item.dest.color);
   }
+
+  if (hasStation) {
+    const bx = inner.x + inner.w - stSize, by = inner.y + (rowH - stSize) / 2;
+    const r = Math.min(stSize / 2, stSize * ((st.radius ?? 18) / 100));
+    const lw = Math.max(0.5, stSize * 0.07);
+    if (st.style === 'fill') {
+      ctx.fillStyle = st.color; roundRect(ctx, bx, by, stSize, stSize, r); ctx.fill();
+    } else {
+      ctx.strokeStyle = st.color; ctx.lineWidth = lw;
+      roundRect(ctx, bx + lw / 2, by + lw / 2, stSize - lw, stSize - lw, r); ctx.stroke();
+    }
+    const ip = stSize * 0.1;
+    const box = { x: bx + ip, y: by + ip, w: stSize - 2 * ip, h: stSize - 2 * ip };
+    const txt = String(st.text).trim();
+    const m2 = st.twoLine !== false ? txt.match(/^([A-Za-z]+)[-\s]?(\d+)$/) : null;
+    const stItem = { ...item, letterSpacing: 0 };
+    if (m2) {
+      const lh = box.h / 2;
+      fitText(ctx, m2[1], { x: box.x, y: box.y, w: box.w, h: lh * 0.95 }, stItem, st.textColor, 'center', { heightRatio: 0.9 });
+      fitText(ctx, m2[2], { x: box.x, y: box.y + lh, w: box.w, h: lh * 0.95 }, stItem, st.textColor, 'center', { heightRatio: 0.9 });
+    } else {
+      fitText(ctx, txt, box, stItem, st.textColor, 'center', { heightRatio: 0.8 });
+    }
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  if (r === 0) { ctx.rect(x, y, w, h); return; }
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 /** LED ドット風: 高解像度で描いてからドット格子にサンプリング */
