@@ -162,40 +162,40 @@ function fontStr(item, px) {
 }
 
 /**
+ * 枠の高さに合わせたフォントサイズと実測幅を求める
+ * @returns {{px:number,width:number,asc:number,desc:number}}
+ */
+function measureFit(ctx, text, boxH, item, heightRatio = 0.96) {
+  let px = boxH * heightRatio;
+  const setFont = () => {
+    ctx.font = fontStr(item, px);
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${(item.letterSpacing || 0) * px / 100}px`;
+  };
+  setFont();
+  let m = ctx.measureText(text);
+  // 実グリフの高さで枠に合わせる（英字だけの行は大きめに描かれる）
+  const glyphH = (m.actualBoundingBoxAscent || px * 0.8) + (m.actualBoundingBoxDescent || 0);
+  if (glyphH > 0) {
+    const f = Math.min(1.25, boxH * heightRatio / glyphH);
+    if (Math.abs(f - 1) > 0.02) { px *= f; setFont(); m = ctx.measureText(text); }
+  }
+  return { px, width: m.width, asc: m.actualBoundingBoxAscent || px * 0.8, desc: m.actualBoundingBoxDescent || px * 0.1 };
+}
+
+/**
  * 枠に収まるように文字を描く（高さ基準でサイズ決定、幅が超える場合は長体）
  * box: {x,y,w,h} in px
  */
 function fitText(ctx, text, box, item, color, align = 'center', opts = {}) {
-  if (!text) return;
-  const heightRatio = opts.heightRatio ?? 0.96;
-  let px = box.h * heightRatio;
-  if (px < 0.5) return;
+  if (!text || box.h < 0.5 || box.w <= 0) return;
   ctx.save();
-  ctx.font = fontStr(item, px);
-  if ('letterSpacing' in ctx) ctx.letterSpacing = `${(item.letterSpacing || 0) * px / 100}px`;
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'center';
-  let m = ctx.measureText(text);
-  let width = m.width;
-  // 実グリフの高さで枠に合わせる（英字だけの行は大きめに描かれる）
-  const glyphH = (m.actualBoundingBoxAscent || px * 0.8) + (m.actualBoundingBoxDescent || 0);
-  if (glyphH > 0 && !opts.noHeightFit) {
-    const target = box.h * heightRatio;
-    const f = Math.min(1.25, target / glyphH);
-    if (Math.abs(f - 1) > 0.02) {
-      px *= f;
-      ctx.font = fontStr(item, px);
-      if ('letterSpacing' in ctx) ctx.letterSpacing = `${(item.letterSpacing || 0) * px / 100}px`;
-      m = ctx.measureText(text);
-      width = m.width;
-    }
-  }
-  const asc = m.actualBoundingBoxAscent || px * 0.8;
-  const desc = m.actualBoundingBoxDescent || px * 0.1;
-  const scaleX = width > box.w ? box.w / width : 1;
-  const cy = box.y + box.h / 2 + (asc - desc) / 2;
+  const f = measureFit(ctx, text, box.h, item, opts.heightRatio ?? 0.96);
+  const scaleX = f.width > box.w ? box.w / f.width : 1;
+  const cy = box.y + box.h / 2 + (f.asc - f.desc) / 2;
+  const drawW = f.width * scaleX;
   let cx = box.x + box.w / 2;
-  const drawW = width * scaleX;
   if (align === 'left') cx = box.x + drawW / 2;
   else if (align === 'right') cx = box.x + box.w - drawW / 2;
   ctx.translate(cx, cy);
@@ -205,70 +205,106 @@ function fitText(ctx, text, box, item, color, align = 'center', opts = {}) {
   ctx.restore();
 }
 
+/** 枠付き / 塗りつぶしのパネルを描き、文字用の内側の箱を返す */
+function drawPanel(ctx, style, color, x, y, w, h, radiusPct) {
+  const radius = Math.min(h / 2, h * ((radiusPct || 0) / 100));
+  if (style === 'fill') {
+    ctx.fillStyle = color;
+    roundRect(ctx, x, y, w, h, radius);
+    ctx.fill();
+  } else if (style === 'box') {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(0.5, h * 0.04);
+    roundRect(ctx, x + ctx.lineWidth / 2, y + ctx.lineWidth / 2, w - ctx.lineWidth, h - ctx.lineWidth, radius);
+    ctx.stroke();
+  }
+  const ipad = style === 'plain' || !style ? 0 : h * 0.08;
+  return { x: x + ipad, y: y + ipad, w: w - 2 * ipad, h: h - 2 * ipad, ipad };
+}
+
 function drawSignContent(ctx, item, x, y, s) {
   const pad = item.h * ((item.padding ?? 8) / 100);
   const inner = { x: (x + pad) * s, y: (y + pad) * s, w: (item.w - 2 * pad) * s, h: (item.h - 2 * pad) * s };
   if (inner.w <= 0 || inner.h <= 0) return;
 
-  const hasKind = !!(item.kind?.text || item.kind?.en);
-  const ratio = hasKind ? Math.min(90, Math.max(0, item.kind.ratio ?? 30)) / 100 : 0;
-  const colGap = hasKind && ratio > 0 ? inner.h * ((item.colGap ?? 6) / 100) : 0;
-  const kindW = inner.w * ratio;
-  const destW = inner.w - kindW - colGap;
+  const kind = item.kind || {}, dest = item.dest || {}, st = item.station || {};
+  const kindOn = kind.enabled !== false && !!(kind.text || kind.en);
+  const destOn = dest.enabled !== false && !!(dest.text || dest.en);
+  const stOn = st.enabled !== false && !!(st.text && String(st.text).trim());
 
-  const hasEn = (item.enRatio ?? 0) > 0 && !!(item.dest?.en || item.kind?.en);
-  const enR = hasEn ? Math.min(70, item.enRatio) / 100 : 0;
-  const rowGap = hasEn ? inner.h * 0.06 : 0;
-  const jpH = inner.h * (1 - enR) - rowGap / 2;
-  const enH = inner.h * enR - rowGap / 2;
+  // 英字行（下段）の分割。行先で「横」を選んだ場合、行先は分割しない
+  const enR = (item.enRatio ?? 0) > 0 ? Math.min(70, item.enRatio) / 100 : 0;
+  const kindSplit = kindOn && enR > 0 && !!kind.en;
+  const destBelow = destOn && enR > 0 && !!dest.en && item.enLayout !== 'right';
+  const destRight = destOn && enR > 0 && !!dest.en && item.enLayout === 'right';
+  // 種別と行先の高さを揃えるため、どちらかが 2 段なら同じ分割を使う
+  const split = kindSplit || destBelow;
+  const rowGap = split ? inner.h * 0.06 : 0;
+  const jpH = split ? inner.h * (1 - enR) - rowGap / 2 : inner.h;
+  const enH = split ? inner.h * enR - rowGap / 2 : 0;
+
+  // 駅ナンバー（右端）: 日本語行の高さに合わせた正方形
+  const rowH = split ? jpH : inner.h;
+  const stSize = stOn ? rowH * (Math.min(150, Math.max(30, st.size ?? 95)) / 100) : 0;
+  const stGap = stOn ? inner.h * 0.1 : 0;
+  const availW = inner.w - stSize - stGap;
+
+  // 種別・行先の幅配分
+  const ratio = Math.min(90, Math.max(0, kind.ratio ?? 30)) / 100;
+  const colGap = kindOn && destOn ? inner.h * ((item.colGap ?? 6) / 100) : 0;
+  const kindW = kindOn ? (destOn ? availW * ratio : availW) : 0;
+  const destW = destOn ? availW - kindW - colGap : 0;
 
   // 種別
-  if (hasKind && ratio > 0) {
-    const kx = inner.x, kw = kindW;
-    const style = item.kind.style || 'plain';
-    // 文字のみ: 種別色で文字を描く / 枠付き・塗りつぶし: 文字色は別指定
-    const textColor = style === 'plain' ? item.kind.color : (item.kind.textColor || item.kind.color);
-    const radius = Math.min(inner.h / 2, inner.h * ((item.kind.radius || 0) / 100));
-    if (style === 'fill') {
-      ctx.fillStyle = item.kind.color;
-      roundRect(ctx, kx, inner.y, kw, inner.h, radius);
-      ctx.fill();
-    } else if (style === 'box') {
-      ctx.strokeStyle = item.kind.color;
-      ctx.lineWidth = Math.max(0.5, inner.h * 0.04);
-      roundRect(ctx, kx + ctx.lineWidth / 2, inner.y + ctx.lineWidth / 2, kw - ctx.lineWidth, inner.h - ctx.lineWidth, radius);
-      ctx.stroke();
-    }
-    const ipad = style === 'plain' ? 0 : inner.h * 0.08;
-    const kbox = { x: kx + ipad, y: inner.y + ipad, w: kw - 2 * ipad, h: inner.h - 2 * ipad };
-    if (hasEn) {
-      const jp = { ...kbox, h: jpH - ipad };
-      const en = { x: kbox.x, y: inner.y + jpH + rowGap, w: kbox.w, h: enH - ipad };
-      fitText(ctx, item.kind.text, jp, item, textColor);
-      fitText(ctx, item.kind.en, en, item, style === 'plain' ? (item.enColor || textColor) : textColor, 'center', { heightRatio: 0.85 });
+  if (kindOn && kindW > 0) {
+    const style = kind.style || 'plain';
+    const textColor = style === 'plain' ? kind.color : (kind.textColor || kind.color);
+    const kb = drawPanel(ctx, style, kind.color, inner.x, inner.y, kindW, inner.h, kind.radius);
+    if (split && kind.en) {
+      fitText(ctx, kind.text, { x: kb.x, y: kb.y, w: kb.w, h: jpH - kb.ipad }, item, textColor);
+      fitText(ctx, kind.en, { x: kb.x, y: inner.y + jpH + rowGap, w: kb.w, h: enH - kb.ipad }, item, style === 'plain' ? (item.enColor || textColor) : textColor, 'center', { heightRatio: 0.85 });
     } else {
-      fitText(ctx, item.kind.text, kbox, item, textColor);
+      fitText(ctx, kind.text || kind.en, kb, item, textColor);
     }
   }
-
-  // 駅ナンバー（行先の右、日本語行の高さに合わせた角丸枠）
-  const st = item.station || {};
-  const hasStation = !!(st.text && String(st.text).trim());
-  const rowH = hasEn ? jpH : inner.h;
-  const stSize = hasStation ? rowH * (Math.min(150, Math.max(30, st.size ?? 95)) / 100) : 0;
-  const stGap = hasStation ? inner.h * 0.1 : 0;
-  const destW2 = destW - stSize - stGap;
 
   // 行先
-  const dx = inner.x + kindW + colGap;
-  if (hasEn) {
-    fitText(ctx, item.dest.text, { x: dx, y: inner.y, w: destW2, h: jpH }, item, item.dest.color);
-    fitText(ctx, item.dest.en, { x: dx, y: inner.y + jpH + rowGap, w: destW2, h: enH }, item, item.enColor || item.dest.color, 'center', { heightRatio: 0.85 });
-  } else {
-    fitText(ctx, item.dest.text, { x: dx, y: inner.y, w: destW2, h: inner.h }, item, item.dest.color);
+  if (destOn && destW > 0) {
+    const dx = inner.x + kindW + colGap;
+    const style = dest.style || 'plain';
+    const db = drawPanel(ctx, style, dest.boxColor || dest.color, dx, inner.y, destW, inner.h, dest.radius);
+    const enColor = item.enColor || dest.color;
+    if (destBelow) {
+      fitText(ctx, dest.text, { x: db.x, y: db.y, w: db.w, h: jpH - db.ipad }, item, dest.color);
+      fitText(ctx, dest.en, { x: db.x, y: inner.y + jpH + rowGap, w: db.w, h: enH - db.ipad }, item, enColor, 'center', { heightRatio: 0.85 });
+    } else if (destRight && dest.text) {
+      // 日本語の右に英字を並べる。合計幅が箱を超えるときは両方を同じ比率で詰める
+      const jpBoxH = split ? jpH - db.ipad : db.h;   // 種別が 2 段なら日本語行の高さに揃える
+      const enBoxH = db.h * enR;
+      const gap = db.h * 0.12;
+      ctx.save();
+      const fj = measureFit(ctx, dest.text, jpBoxH, item, 0.96);
+      const fe = measureFit(ctx, dest.en, enBoxH, item, 0.85);
+      ctx.restore();
+      const total = fj.width + gap + fe.width;
+      const sc = total > db.w ? db.w / total : 1;
+      const jpW = fj.width * sc, enW = fe.width * sc, g = gap * sc;
+      const x0 = db.x + (db.w - (jpW + g + enW)) / 2;
+      const jpY = db.y + (db.h - jpBoxH) / 2;
+      fitText(ctx, dest.text, { x: x0, y: jpY, w: jpW, h: jpBoxH }, item, dest.color, 'left');
+      // 英字は日本語の下端に寄せる
+      const enY = jpY + jpBoxH - enBoxH - jpBoxH * 0.04;
+      fitText(ctx, dest.en, { x: x0 + jpW + g, y: enY, w: enW, h: enBoxH }, item, enColor, 'left', { heightRatio: 0.85 });
+    } else if (split) {
+      // 種別だけ 2 段のとき、行先は日本語行の高さで中央に
+      fitText(ctx, dest.text || dest.en, { x: db.x, y: db.y, w: db.w, h: db.h }, item, dest.text ? dest.color : enColor);
+    } else {
+      fitText(ctx, dest.text || dest.en, db, item, dest.text ? dest.color : enColor);
+    }
   }
 
-  if (hasStation) {
+  // 駅ナンバー
+  if (stOn) {
     const bx = inner.x + inner.w - stSize, by = inner.y + (rowH - stSize) / 2;
     const r = Math.min(stSize / 2, stSize * ((st.radius ?? 18) / 100));
     const lw = Math.max(0.5, stSize * 0.07);

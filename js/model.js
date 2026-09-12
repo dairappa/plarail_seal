@@ -53,10 +53,10 @@ const SIGN_BASE = {
   bg: '#000000', font: 'Noto Sans JP', weight: 700,
   padding: 8, colGap: 6, letterSpacing: 0,
   ledDots: false, ledRows: 24,
-  kind: { text: '普通', color: '#ffffff', textColor: '#000000', style: 'plain', ratio: 32, radius: 0, en: 'Local' },
-  dest: { text: '名古屋', color: '#ff9a00', en: 'Nagoya' },
-  station: { text: '', twoLine: true, style: 'box', color: '#2f4fd0', textColor: '#ffffff', size: 95, radius: 18 },
-  enRatio: 36, enColor: '#ffffff',
+  kind: { enabled: true, text: '普通', color: '#ffffff', textColor: '#000000', style: 'plain', ratio: 32, radius: 0, en: 'Local' },
+  dest: { enabled: true, text: '名古屋', color: '#ff9a00', en: 'Nagoya', style: 'plain', boxColor: '#ffffff', radius: 0 },
+  station: { enabled: true, text: '', twoLine: true, style: 'box', color: '#2f4fd0', textColor: '#ffffff', size: 95, radius: 18 },
+  enRatio: 36, enColor: '#ffffff', enLayout: 'below',
 };
 
 const TEXT_BASE = {
@@ -97,6 +97,26 @@ export const PRESETS = [
       ...SIGN_BASE, name: '近鉄 側面LED 急行 宇治山田',
       kind: { text: '急行', color: '#f08a1a', textColor: '#000000', style: 'fill', ratio: 34, radius: 12, en: 'Express' },
       dest: { text: '宇治山田', color: '#ffffff', en: 'Ujiyamada' },
+    },
+  },
+  {
+    id: 'kintetsu-en-right',
+    name: '近鉄 側面 LED 表示（英字を横に・急行 五十鈴川）',
+    item: {
+      ...SIGN_BASE, name: '近鉄 側面LED 急行 五十鈴川（英字横）',
+      kind: { enabled: true, text: '急行', color: '#ff2d2d', textColor: '#000000', style: 'plain', ratio: 26, radius: 0, en: '' },
+      dest: { enabled: true, text: '五十鈴川', color: '#ffffff', en: 'Isuzugawa', style: 'plain', boxColor: '#ffffff', radius: 0 },
+      enRatio: 45, enLayout: 'right',
+    },
+  },
+  {
+    id: 'dest-box',
+    name: '行先を枠付きに（幕式・賢島）',
+    item: {
+      ...SIGN_BASE, name: '幕式 枠付き行先', bg: '#ffffff',
+      kind: { enabled: false, text: '', color: '#000000', textColor: '#000000', style: 'plain', ratio: 0, radius: 0, en: '' },
+      dest: { enabled: true, text: '賢島', color: '#000000', en: 'Kashikojima', style: 'box', boxColor: '#000000', radius: 10 },
+      enRatio: 30, enColor: '#000000',
     },
   },
   {
@@ -145,9 +165,25 @@ export function makeItem(type, overrides = {}) {
 
 export function itemLabel(item) {
   if (item.name) return item.name;
-  if (item.type === 'sign') return [item.kind?.text, item.dest?.text].filter(Boolean).join(' ') || '行先表示';
+  if (item.type === 'sign') {
+    const parts = [];
+    if (item.kind?.enabled !== false) parts.push(item.kind?.text);
+    if (item.dest?.enabled !== false) parts.push(item.dest?.text);
+    if (item.station?.enabled !== false) parts.push(item.station?.text);
+    return parts.filter(Boolean).join(' ') || '行先表示';
+  }
   if (item.type === 'text') return (item.text || '文字').split('\n')[0];
   return '画像';
+}
+
+/** 行先表示に描かれる文字が 1 つもないか */
+export function signIsBlank(item) {
+  if (item.type !== 'sign') return false;
+  const k = item.kind || {}, d = item.dest || {}, st = item.station || {};
+  const kindOn = k.enabled !== false && !!(k.text || k.en);
+  const destOn = d.enabled !== false && !!(d.text || d.en);
+  const stOn = st.enabled !== false && !!(st.text && String(st.text).trim());
+  return !kindOn && !destOn && !stOn;
 }
 
 export function paperById(id) {
@@ -181,6 +217,7 @@ export function normalizeProject(raw) {
       if (it.kind && it.kind.textColor == null) m.kind.textColor = it.kind.style === 'fill' ? (it.bg || '#000000') : m.kind.color;
       m.dest = { ...SIGN_BASE.dest, ...(it.dest || {}) };
       m.station = { ...SIGN_BASE.station, ...(it.station || {}) };
+      if (!m.enLayout) m.enLayout = 'below';
     }
     if (!m.id) m.id = uid();
     return m;
