@@ -1,8 +1,12 @@
 // データモデル・プリセット定義
 
 export const PAPERS = [
-  { id: 'L',   name: 'L判 89×127 mm（コンビニ シール紙）',       w: 89,  h: 127, cvs: true,  k: { border: 108, borderless: 96 } },
-  { id: 'SQ',  name: 'スクエア 127×127 mm（コンビニ シール紙）', w: 127, h: 127, cvs: true,  k: { border: 105, borderless: 97 } },
+  // k.border: 「フチあり」印刷時の縮小を打ち消す事前拡大 %。
+  //   L判  103.6 … 実機（ローソン系シャープ機）で 108% 書き出し → 50 mm が 52.1 mm に印刷された実測から算出
+  //   2L判 104   … Gigamix Online の実測（80 mm → 77 mm）
+  //   スクエア 104 … 実測なし。上記から推定
+  { id: 'L',   name: 'L判 89×127 mm（コンビニ シール紙）',       w: 89,  h: 127, cvs: true,  k: { border: 103.6, borderless: 96 } },
+  { id: 'SQ',  name: 'スクエア 127×127 mm（コンビニ シール紙）', w: 127, h: 127, cvs: true,  k: { border: 104, borderless: 97 } },
   { id: '2L',  name: '2L判 127×178 mm（コンビニ シール紙）',     w: 127, h: 178, cvs: true,  k: { border: 104, borderless: 97 } },
   { id: 'A4',  name: 'A4 210×297 mm（家庭用シール台紙）',       w: 210, h: 297, cvs: false },
   { id: 'A5',  name: 'A5 148×210 mm',                          w: 148, h: 210, cvs: false },

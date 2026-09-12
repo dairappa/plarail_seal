@@ -29,9 +29,9 @@ const check = (name, ok, detail = '') => { console.log(`${ok ? 'PASS' : 'FAIL'} 
 await page.goto(url);
 await page.waitForFunction(() => window.__app && document.querySelectorAll('#item-list li').length > 0);
 
-// L判 300dpi の書き出しサイズ
-let dims = await page.evaluate(() => { const c = window.__app.exportCanvas(); return [c.width, c.height]; });
-check('L判 300dpi は 1051×1500 px', dims[0] === 1051 && dims[1] === 1500, dims.join('×'));
+// L判 300dpi の書き出しサイズ・既定補正
+let dims = await page.evaluate(() => { const c = window.__app.exportCanvas(); return [c.width, c.height, window.__app.project.scaleK]; });
+check('L判 300dpi は 1051×1500 px, 補正103.6%', dims[0] === 1051 && dims[1] === 1500 && dims[2] === 103.6, dims.join('×'));
 
 // プリセットを全部追加して配置・描画できる
 const presetCount = await page.evaluate(() => document.querySelectorAll('#add-preset option').length - 1);

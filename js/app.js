@@ -46,6 +46,13 @@ function init() {
   $('ruler').addEventListener('change', e => { project.ruler = e.target.checked; update(); });
   $('show-unprintable').addEventListener('change', e => { project.showUnprintable = e.target.checked; update(); });
 
+  $('calib-measured').addEventListener('input', () => {
+    const measured = Number($('calib-measured').value);
+    const len = lastLayout?.ruler?.len || rulerLength(layoutSheet(project).area.w);
+    $('calib-preview').textContent = measured > 0
+      ? `現在 ${project.scaleK}% × ${len} ÷ ${measured} → 新しい補正 ${(Math.round((project.scaleK || 100) * (len / measured) * 10) / 10)}%`
+      : '';
+  });
   $('btn-calib').addEventListener('click', () => {
     const measured = Number($('calib-measured').value);
     const len = lastLayout?.ruler?.len || rulerLength(layoutSheet(project).area.w);
@@ -53,6 +60,7 @@ function init() {
     const newK = Math.round((project.scaleK || 100) * (len / measured) * 10) / 10;
     project.scaleK = newK;
     $('calib-measured').value = '';
+    $('calib-preview').textContent = '';
     update();
     toast(`サイズ補正を ${newK}% に更新しました。もう一度書き出して印刷してください`);
   });
@@ -176,7 +184,7 @@ function syncSheetForm() {
   const u = usableArea(project);
   let note;
   if (project.printMode === 'cvs-border') {
-    note = `「フチあり」で印刷すると全体が約 ${Math.round((1 - 100 / project.scaleK) * 100)}% 縮小されるため、書き出し時に ${project.scaleK}% に拡大して打ち消します。既定値は目安です。ものさしを印刷して実測すると正確に合わせられます。`;
+    note = `「フチあり」で印刷すると全体が約 ${Math.round((1 - 100 / project.scaleK) * 10) * 10 / 10}% 縮小されるため、書き出し時に ${project.scaleK}% に拡大して打ち消します。L判の既定値は実機で測った値、2L判・スクエアは目安です。機体差もあるので、ものさしを印刷して実測すると確実です。`;
   } else if (project.printMode === 'cvs-borderless') {
     note = `「フチなし」は用紙より大きく拡大して印刷され、周囲が切れます。既定値は目安です。必ずものさしで実測してください。`;
   } else {
