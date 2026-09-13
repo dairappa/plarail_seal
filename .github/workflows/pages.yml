@@ -25,10 +25,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      # 配信するのはアプリ本体だけ（テストや package.json は含めない）
+      - name: Collect site files
+        run: |
+          mkdir -p dist
+          cp -r index.html css js .nojekyll dist/
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: dist
       - id: deployment
         uses: actions/deploy-pages@v4
