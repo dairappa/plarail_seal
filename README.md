@@ -68,8 +68,15 @@ npm run test:a11y  # アクセシビリティテストのみ
 
 ### GitHub Pages への公開
 
-`.github/workflows/pages.yml` が `main` への push で自動デプロイします。
-リポジトリの Settings → Pages で **Source を「GitHub Actions」** にしてください。
+公開 URL: https://dairappa.github.io/plarail_seal/
+
+`.github/workflows/pages.yml` が **既定ブランチ**への push のたびに自動デプロイします（ブランチ名は固定していないので、
+既定ブランチを `main` に変えてもそのまま動きます）。初回は `actions/configure-pages` が Pages を自動で有効化します。
+もし Actions が「Pages が有効になっていない」旨で失敗したら、リポジトリの Settings → Pages で
+**Source を「GitHub Actions」** にしてから、Actions タブの「Deploy to GitHub Pages」を Run workflow で再実行してください。
+
+ビルドは不要で、リポジトリ直下をそのまま配信します（`.nojekyll` で Jekyll 処理を止めています）。
+相対パスだけで構成しているので、`/plarail_seal/` のようなサブパス配下でも動きます。
 
 ## 参考
 
