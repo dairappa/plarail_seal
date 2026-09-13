@@ -1,5 +1,5 @@
 // UI とアプリ状態
-import { PAPERS, FONTS, LED_SWATCHES, PRESETS, defaultProject, makeItem, itemLabel, paperById, defaultScaleK, usableArea, signIsBlank, fillOf, makeBand } from './model.js';
+import { PAPERS, FONTS, LED_SWATCHES, PRESETS, defaultProject, makeItem, itemLabel, paperById, defaultScaleK, scaleKFor, calibKey, usableArea, signIsBlank, fillOf, makeBand } from './model.js';
 import { layoutSheet, rulerLength } from './layout.js';
 import { renderSheet, renderItemThumb, fontsInUse, setImageLoadedCallback } from './render.js';
 import { exportPNG, exportCanvas, printSheet } from './export.js';
@@ -27,7 +27,7 @@ function init() {
     if (p.id !== 'custom') { project.paper.w = p.w; project.paper.h = p.h; }
     if (!p.cvs && project.printMode !== 'home') project.printMode = 'home';
     if (p.cvs && project.printMode === 'home') project.printMode = 'cvs-border';
-    project.scaleK = defaultScaleK(project);
+    project.scaleK = scaleKFor(project);
     update({ fit: true });
   });
   bindNumber('paper-w', v => { project.paper.w = v; project.paper.preset = 'custom'; }, { fit: true });
@@ -35,10 +35,10 @@ function init() {
   bindNumber('paper-margin', v => { project.paper.margin = v; });
   $('print-mode').addEventListener('change', e => {
     project.printMode = e.target.value;
-    project.scaleK = defaultScaleK(project);
+    project.scaleK = scaleKFor(project);
     update();
   });
-  bindNumber('scale-k', v => { project.scaleK = v; });
+  bindNumber('scale-k', v => { project.scaleK = v; rememberCalib(); });
   $('dpi').addEventListener('change', e => { project.dpi = Number(e.target.value); update(); });
   bindNumber('gap', v => { project.gap = v; });
   bindNumber('bleed', v => { project.bleed = v; });
@@ -59,6 +59,7 @@ function init() {
     if (!(measured > 0)) { toast('実測した長さ（mm）を入力してください'); return; }
     const newK = Math.round((project.scaleK || 100) * (len / measured) * 10) / 10;
     project.scaleK = newK;
+    rememberCalib();
     $('calib-measured').value = '';
     $('calib-preview').textContent = '';
     update();
@@ -126,6 +127,13 @@ function init() {
     update,
     flush,
   };
+}
+
+/** 現在の用紙×印刷方法の補正 % を覚える（切り替えて戻しても保持される） */
+function rememberCalib() {
+  if (!project.calib) project.calib = {};
+  if (project.scaleK === defaultScaleK(project)) delete project.calib[calibKey(project)];
+  else project.calib[calibKey(project)] = project.scaleK;
 }
 
 let toastTimer = null;
@@ -223,6 +231,8 @@ function syncSheetForm() {
   } else {
     note = '印刷ダイアログで倍率 100%（「ページに合わせる」を外す）にすれば補正は不要です。ずれる場合はものさしで実測して補正してください。';
   }
+  const remembered = project.calib?.[calibKey(project)];
+  if (Number.isFinite(remembered)) note += `（この用紙・印刷方法の実測から求めた値 ${remembered}% を使用中。既定値は ${defaultScaleK(project)}%）`;
   $('scale-note').textContent = note;
   $('sheet-info').textContent = `${project.paper.w}×${project.paper.h} mm ／ 有効 ${u.w.toFixed(1)}×${u.h.toFixed(1)} mm ／ 書き出し ${Math.round(project.paper.w * project.dpi / 25.4)}×${Math.round(project.paper.h * project.dpi / 25.4)} px`;
 }

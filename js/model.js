@@ -36,6 +36,7 @@ export function defaultProject() {
     paper: { preset: p.id, w: p.w, h: p.h, margin: 1 },
     printMode: 'cvs-border',
     scaleK: p.k.border,
+    calib: {},          // 用紙×印刷方法ごとに覚えたサイズ補正 %（例: { 'L:cvs-border': 103.6 }）
     dpi: 300,
     gap: 1.5,
     bleed: 0.3,
@@ -230,6 +231,16 @@ export function defaultScaleK(project) {
   return project.printMode === 'cvs-borderless' ? p.k.borderless : p.k.border;
 }
 
+/** 用紙×印刷方法のキー（キャリブレーション結果の保存先） */
+export function calibKey(project) {
+  return `${project.paper.preset}:${project.printMode}`;
+}
+/** 覚えている補正があればそれ、なければ既定値 */
+export function scaleKFor(project) {
+  const k = project.calib?.[calibKey(project)];
+  return Number.isFinite(k) ? k : defaultScaleK(project);
+}
+
 /** 有効な印刷領域（true mm）: 用紙 / max(1, k) を中央配置 */
 export function usableArea(project) {
   const k = Math.max(1, (project.scaleK || 100) / 100);
@@ -242,6 +253,7 @@ export function normalizeProject(raw) {
   const d = defaultProject();
   const p = { ...d, ...raw };
   p.paper = { ...d.paper, ...(raw.paper || {}) };
+  p.calib = { ...(raw.calib || {}) };
   p.items = (raw.items || []).map(it => {
     const base = it.type === 'sign' ? SIGN_BASE : it.type === 'text' ? TEXT_BASE : IMAGE_BASE;
     const m = JSON.parse(JSON.stringify({ ...base, ...it }));

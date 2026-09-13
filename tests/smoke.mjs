@@ -46,6 +46,14 @@ await page.click('#btn-calib');
 const k = await page.evaluate(() => window.__app.project.scaleK);
 c('キャリブレーション 50/46.3 → 108%', k === 108, String(k));
 
+// 補正は用紙×印刷方法ごとに記憶され、切り替えて戻しても保持される
+await page.selectOption('#print-mode', 'cvs-borderless');
+let kb = await page.evaluate(() => window.__app.project.scaleK);
+c('フチなしに切り替えると既定 96%', kb === 96, String(kb));
+await page.selectOption('#print-mode', 'cvs-border');
+kb = await page.evaluate(() => window.__app.project.scaleK);
+c('フチありに戻すと実測から求めた 108% が保持される', kb === 108, String(kb));
+
 // 書き出し画像に描画がある
 const hasInk = await page.evaluate(async () => {
   await window.__app.ensureFonts();
