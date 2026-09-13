@@ -57,6 +57,40 @@ const hasInk = await page.evaluate(async () => {
 });
 c('書き出し画像に描画がある', hasInk);
 
+// ストライプ / グラデーション背景が書き出しに反映される
+const stripe = await page.evaluate(async () => {
+  const app = window.__app;
+  const p = app.project;
+  const saved = JSON.stringify(p);
+  p.items = [{
+    id: 't1', type: 'sign', w: 30, h: 6, copies: 1, font: 'Noto Sans JP', weight: 700, padding: 0,
+    bg: '#ff0000', fill: { mode: 'cols', bands: [{ weight: 1, color: '#ff0000' }, { weight: 1, color: '#ffffff' }, { weight: 2, color: '#0000ff' }] },
+    kind: { enabled: false }, dest: { enabled: false }, station: { enabled: false },
+  }, {
+    id: 't2', type: 'text', w: 30, h: 6, copies: 1, text: '', font: 'Noto Sans JP', weight: 700, padding: 0,
+    bg: '#000000', fill: { mode: 'solid', bands: [{ weight: 1, color: '#000000', grad: true, color2: '#ffffff', gradDir: 'v' }] },
+  }];
+  p.marks = 'none'; p.bleed = 0; p.ruler = false; p.scaleK = 100; p.dpi = 300;
+  app.update(); app.flush();
+  const s = 300 / 25.4;
+  const l = app.layout();
+  const c = app.exportCanvas();
+  const ctx = c.getContext('2d');
+  const px = (x, y) => [...ctx.getImageData(Math.round(x * s), Math.round(y * s), 1, 1).data].slice(0, 3);
+  const a = l.placed[0], b = l.placed[1];
+  const res = {
+    band1: px(a.x + 30 * (0.25 / 2), a.y + 3),           // 幅 1/4 の赤
+    band2: px(a.x + 30 * (0.25 + 0.125), a.y + 3),       // 次の 1/4 の白
+    band3: px(a.x + 30 * 0.75, a.y + 3),                 // 残り 1/2 の青
+    gradTop: px(b.x + 15, b.y + 0.3), gradBottom: px(b.x + 15, b.y + 5.7),
+  };
+  app.project = JSON.parse(saved);
+  return res;
+});
+const near = (c, t) => c.every((v, i) => Math.abs(v - t[i]) <= 3);
+c('縦縞 3 帯（1:1:2）の色が正しい位置に出る', near(stripe.band1, [255, 0, 0]) && near(stripe.band2, [255, 255, 255]) && near(stripe.band3, [0, 0, 255]), JSON.stringify([stripe.band1, stripe.band2, stripe.band3]));
+c('上→下グラデーションが暗→明になる', stripe.gradTop[0] < 40 && stripe.gradBottom[0] > 215, JSON.stringify([stripe.gradTop, stripe.gradBottom]));
+
 // localStorage 保存 → 再読み込みで復元
 await page.waitForTimeout(500);
 await page.reload();

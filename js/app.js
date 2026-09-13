@@ -1,5 +1,5 @@
 // UI とアプリ状態
-import { PAPERS, FONTS, LED_SWATCHES, PRESETS, defaultProject, makeItem, itemLabel, paperById, defaultScaleK, usableArea, signIsBlank } from './model.js';
+import { PAPERS, FONTS, LED_SWATCHES, PRESETS, defaultProject, makeItem, itemLabel, paperById, defaultScaleK, usableArea, signIsBlank, fillOf, makeBand } from './model.js';
 import { layoutSheet, rulerLength } from './layout.js';
 import { renderSheet, renderItemThumb, fontsInUse, setImageLoadedCallback } from './render.js';
 import { exportPNG, exportCanvas, printSheet } from './export.js';
@@ -398,6 +398,56 @@ function renderEditor() {
     return sel(f.weights.map(w => [w, w >= 800 ? `極太 (${w})` : w >= 700 ? `太字 (${w})` : w >= 500 ? `中 (${w})` : `標準 (${w})`]), () => it.weight, v => { it.weight = Number(v); });
   };
 
+  /** 背景（単色 / ストライプ / グラデーション）の編集 UI */
+  const backgroundEditor = () => {
+    const f = fillOf(it); it.fill = f;
+    const syncBg = () => { it.bg = f.bands[0]?.color || '#ffffff'; };
+    const sb = sec('背景');
+    row(sb, field('塗り方', sel([['solid', '単色'], ['rows', 'ストライプ（横縞・上から順）'], ['cols', 'ストライプ（縦縞・左から順）']], () => f.mode, v => {
+      f.mode = v;
+      if (v !== 'solid' && f.bands.length < 2) f.bands.push(makeBand('#ffffff', f.bands[0].weight || 1));
+      syncBg();
+    })));
+    const bandUI = (band, i, showWeight) => {
+      const prev = section; section = `背景:帯${i + 1}`;
+      const box = document.createElement('div'); box.className = 'band';
+      const head = document.createElement('div'); head.className = 'band-head';
+      const title = document.createElement('span'); title.textContent = showWeight ? `帯 ${i + 1}` : '色';
+      head.appendChild(title);
+      if (showWeight) {
+        const acts = document.createElement('span'); acts.className = 'band-actions';
+        const mk = (label, aria, fn, disabled) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small'; b.textContent = label; b.setAttribute('aria-label', aria); b.disabled = !!disabled; b.dataset.key = keyFor(aria); b.addEventListener('click', fn); return b; };
+        acts.append(
+          mk('↑', `帯 ${i + 1} を上へ`, () => { [f.bands[i - 1], f.bands[i]] = [f.bands[i], f.bands[i - 1]]; syncBg(); requestFocus(keyFor(`帯 ${i} を上へ`)); update(); }, i === 0),
+          mk('↓', `帯 ${i + 1} を下へ`, () => { [f.bands[i + 1], f.bands[i]] = [f.bands[i], f.bands[i + 1]]; syncBg(); requestFocus(keyFor(`帯 ${i + 2} を下へ`)); update(); }, i === f.bands.length - 1),
+          mk('✕', `帯 ${i + 1} を削除`, () => { f.bands.splice(i, 1); syncBg(); requestFocus(`${it.id}:背景:帯を追加`); update(); }, f.bands.length <= 1),
+        );
+        head.appendChild(acts);
+      }
+      box.appendChild(head);
+      const r1 = row(box, color('色', () => band.color, v => { band.color = v; syncBg(); }));
+      if (showWeight) r1.prepend(field('幅 %', num(() => band.weight, v => { band.weight = v; }, 1, 0)));
+      box.appendChild(check('グラデーション', () => band.grad, v => { band.grad = v; }));
+      if (band.grad) {
+        row(box, color('色 2（終点）', () => band.color2, v => { band.color2 = v; }), field('向き', sel([['v', '上 → 下'], ['h', '左 → 右']], () => band.gradDir || 'v', v => { band.gradDir = v; })));
+      }
+      section = prev;
+      return box;
+    };
+    if (f.mode === 'solid') {
+      sb.appendChild(bandUI(f.bands[0], 0, false));
+    } else {
+      f.bands.forEach((band, i) => sb.appendChild(bandUI(band, i, true)));
+      const add = document.createElement('button'); add.type = 'button'; add.className = 'btn small';
+      add.textContent = '＋ 帯を追加'; add.dataset.key = `${it.id}:背景:帯を追加`;
+      add.addEventListener('click', () => { f.bands.push(makeBand(f.bands.length % 2 ? f.bands[0].color : '#ffffff', 20)); requestFocus(`${it.id}:背景:帯${f.bands.length}:幅 %`); update(); });
+      sb.appendChild(add);
+      const note = document.createElement('p'); note.className = 'note';
+      note.textContent = '幅 % は合計に対する割合です（合計が 100 でなくても構いません）。塗り足しは両端の帯を外側へ伸ばします。';
+      sb.appendChild(note);
+    }
+  };
+
   // 共通
   const g = sec(null);
   g.appendChild(field('名前（任意）', text(() => it.name, v => { it.name = v; })));
@@ -405,7 +455,6 @@ function renderEditor() {
 
   if (it.type === 'sign') {
     const s1 = sec('表示器');
-    row(s1, color('背景色', () => it.bg, v => { it.bg = v; }));
     row(s1, field('フォント', fontSel()), field('太さ', weightSel()));
     row(s1, field('内側余白 %', num(() => it.padding, v => { it.padding = v; }, 1, 0)), field('字間 %', num(() => it.letterSpacing, v => { it.letterSpacing = v; }, 1, -20)));
     row(s1, check('LED ドット風', () => it.ledDots, v => { it.ledDots = v; }), field('ドット行数', num(() => it.ledRows, v => { it.ledRows = v; }, 1, 6)));
@@ -414,6 +463,8 @@ function renderEditor() {
     blankNote.textContent = '表示するパーツがありません。背景色だけの四角として印刷されます。';
     blankNote.hidden = !signIsBlank(it);
     s1.appendChild(blankNote);
+
+    backgroundEditor();
 
     const s2 = sec('種別（左側）');
     s2.appendChild(check('種別を表示する', () => it.kind.enabled !== false, v => { it.kind.enabled = v; }));
@@ -462,9 +513,10 @@ function renderEditor() {
     ta.addEventListener('input', () => { it.text = ta.value; renderPreview(); saveLocal(project); });
     ta.addEventListener('change', () => update());
     s1.appendChild(field('内容（改行で複数行）', ta));
-    row(s1, color('文字色', () => it.color, v => { it.color = v; }), color('背景色', () => it.bg, v => { it.bg = v; }));
+    row(s1, color('文字色', () => it.color, v => { it.color = v; }));
     row(s1, field('フォント', fontSel()), field('太さ', weightSel()));
     row(s1, field('揃え', sel([['left', '左'], ['center', '中央'], ['right', '右']], () => it.align, v => { it.align = v; })), field('内側余白 %', num(() => it.padding, v => { it.padding = v; }, 1, 0)), field('字間 %', num(() => it.letterSpacing, v => { it.letterSpacing = v; }, 1, -20)));
+    backgroundEditor();
   } else if (it.type === 'image') {
     const s1 = sec('画像');
     const f = document.createElement('input'); f.type = 'file'; f.accept = 'image/*'; f.dataset.key = keyFor('画像ファイル');

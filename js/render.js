@@ -1,5 +1,6 @@
 // キャンバス描画（プレビュー・書き出し共通）。座標は mm、s = px/mm。
 import { layoutSheet, MARK_LEN, MARK_GAP } from './layout.js';
+import { fillOf } from './model.js';
 
 const imageCache = new Map();
 let onImageLoaded = null;
@@ -133,9 +134,7 @@ function drawRuler(ctx, r, s) {
 export function drawItem(ctx, item, x, y, s, project) {
   const b = Math.max(0, project?.bleed || 0);
   ctx.save();
-  // 背景（塗り足し込み）
-  ctx.fillStyle = item.bg || '#ffffff';
-  ctx.fillRect((x - b) * s, (y - b) * s, (item.w + 2 * b) * s, (item.h + 2 * b) * s);
+  paintBackground(ctx, item, x, y, s, b);
 
   if (item.type === 'sign') {
     if (item.ledDots) drawSignLED(ctx, item, x, y, s);
@@ -146,6 +145,41 @@ export function drawItem(ctx, item, x, y, s, project) {
     drawImageItem(ctx, item, x, y, s, b);
   }
   ctx.restore();
+}
+
+/**
+ * 背景を塗る（単色 / ストライプ / グラデーション）。帯の割合はシール本体 (x,y,w,h) に対して決め、
+ * 外側の帯だけを塗り足し分だけ外へ伸ばす。
+ */
+export function paintBackground(ctx, item, x, y, s, bleed = 0) {
+  const f = fillOf(item);
+  const bands = f.mode === 'solid' ? [f.bands[0]] : f.bands.filter(b => (b.weight ?? 0) > 0);
+  const total = bands.reduce((a, b) => a + (Number(b.weight) || 0), 0) || 1;
+  const rows = f.mode !== 'cols';                      // rows: 帯が上下に並ぶ（横縞） / cols: 左右に並ぶ（縦縞）
+  const len = rows ? item.h : item.w;                  // 帯を積む方向の長さ
+  let pos = 0;
+  bands.forEach((band, i) => {
+    const w = len * ((Number(band.weight) || 0) / total);
+    let a = pos, e = pos + w;
+    if (i === 0) a -= bleed;
+    if (i === bands.length - 1) e += bleed;
+    pos += w;
+    const rx = rows ? x - bleed : x + a, ry = rows ? y + a : y - bleed;
+    const rw = rows ? item.w + 2 * bleed : e - a, rh = rows ? e - a : item.h + 2 * bleed;
+    ctx.fillStyle = bandStyle(ctx, band, rx * s, ry * s, rw * s, rh * s);
+    // 帯の継ぎ目に隙間が出ないよう 0.5px 重ねる
+    ctx.fillRect(rx * s - 0.25, ry * s - 0.25, rw * s + 0.5, rh * s + 0.5);
+  });
+}
+
+function bandStyle(ctx, band, px, py, pw, ph) {
+  if (!band.grad) return band.color;
+  const g = band.gradDir === 'h'
+    ? ctx.createLinearGradient(px, py, px + pw, py)
+    : ctx.createLinearGradient(px, py, px, py + ph);
+  g.addColorStop(0, band.color);
+  g.addColorStop(1, band.color2 || band.color);
+  return g;
 }
 
 /** 単体プレビュー用（塗り足しなし・原点 0,0） */
@@ -341,7 +375,7 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-/** LED ドット風: 高解像度で描いてからドット格子にサンプリング */
+/** LED ドット風: 文字だけを高解像度で描いてからドット格子にサンプリング。背景は通常どおり塗ってある */
 function drawSignLED(ctx, item, x, y, s) {
   const rows = Math.max(6, Math.min(64, Math.round(item.ledRows || 16)));
   const cols = Math.max(1, Math.round(rows * item.w / item.h));
@@ -349,9 +383,7 @@ function drawSignLED(ctx, item, x, y, s) {
   const off = document.createElement('canvas');
   off.width = cols * sup; off.height = rows * sup;
   const octx = off.getContext('2d');
-  octx.fillStyle = item.bg || '#000';
-  octx.fillRect(0, 0, off.width, off.height);
-  drawSignContent(octx, item, 0, 0, (rows * sup) / item.h);
+  drawSignContent(octx, item, 0, 0, (rows * sup) / item.h);   // 透明な下地
 
   const small = document.createElement('canvas');
   small.width = cols; small.height = rows;
@@ -360,8 +392,6 @@ function drawSignLED(ctx, item, x, y, s) {
   sctx.drawImage(off, 0, 0, cols, rows);
   const data = sctx.getImageData(0, 0, cols, rows).data;
 
-  const bg = hexToRgb(item.bg || '#000000');
-  const darkBg = (bg[0] + bg[1] + bg[2]) < 200;
   const cell = item.h / rows;                // mm
   const r = cell * 0.45 * s;                 // px
   ctx.save();
@@ -371,19 +401,11 @@ function drawSignLED(ctx, item, x, y, s) {
   for (let j = 0; j < rows; j++) {
     for (let i = 0; i < cols; i++) {
       const o = (j * cols + i) * 4;
-      let R = data[o], G = data[o + 1], B = data[o + 2];
-      const diff = Math.abs(R - bg[0]) + Math.abs(G - bg[1]) + Math.abs(B - bg[2]);
-      if (diff < 24) continue;                 // 消灯ドット
-      // 文字の縁のアンチエイリアスで暗くなったドットを点灯色に正規化（LED らしいコントラストにする）
-      if (darkBg) {
-        const t = Math.max(R, G, B) / 255;
-        if (t < 0.3) continue;
-        const gain = (t >= 0.55 ? 1 : 0.65) / t;
-        R = Math.min(255, Math.round(R * gain)); G = Math.min(255, Math.round(G * gain)); B = Math.min(255, Math.round(B * gain));
-      }
-      ctx.fillStyle = `rgb(${R},${G},${B})`;
+      const a = data[o + 3] / 255;
+      if (a < 0.3) continue;                 // 消灯ドット
+      ctx.fillStyle = `rgb(${data[o]},${data[o + 1]},${data[o + 2]})`;
       ctx.beginPath();
-      ctx.arc((x + (i + 0.5) * cell) * s, (y + (j + 0.5) * cell) * s, r, 0, Math.PI * 2);
+      ctx.arc((x + (i + 0.5) * cell) * s, (y + (j + 0.5) * cell) * s, r * (a >= 0.55 ? 1 : 0.7), 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -425,9 +447,3 @@ function drawImageItem(ctx, item, x, y, s, bleed) {
   ctx.restore();
 }
 
-function hexToRgb(hex) {
-  const h = hex.replace('#', '');
-  const v = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
-  const n = parseInt(v, 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}

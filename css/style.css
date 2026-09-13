@@ -92,9 +92,15 @@ textarea { resize: vertical; min-height: 60px; }
 
 .editor-section { border-top: 1px dashed var(--border); padding-top: 8px; margin-top: 8px; }
 .editor-section h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); font-weight: 700; }
-.color-field { display: flex; align-items: center; gap: 6px; }
-.color-field input[type=text] { width: 90px; font-family: ui-monospace, monospace; }
-.swatches { display: flex; gap: 4px; flex-wrap: wrap; }
+.band { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; background: #fbfaf8; }
+.band-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.band-actions { display: flex; gap: 2px; }
+.band-actions .btn.small { padding: 1px 6px; }
+.band .field { margin-bottom: 4px; }
+.color-field { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.color-field input[type=color] { flex: none; }
+.color-field input[type=text] { flex: 1 1 80px; min-width: 80px; max-width: 110px; font-family: ui-monospace, monospace; }
+.swatches { display: flex; gap: 4px; flex-wrap: wrap; flex-basis: 100%; }
 .swatches button { width: 20px; height: 20px; border: 1px solid #999; border-radius: 3px; cursor: pointer; padding: 0; }
 .swatches button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .calib summary { cursor: pointer; font-size: 13px; color: var(--link); }

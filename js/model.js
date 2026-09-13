@@ -48,9 +48,23 @@ export function defaultProject() {
   };
 }
 
+/** 背景（塗り）: 帯のリスト。mode が solid なら bands[0] だけを使う */
+export function solidFill(color) {
+  return { mode: 'solid', bands: [{ weight: 1, color, grad: false, color2: '#ffffff', gradDir: 'v' }] };
+}
+export function makeBand(color, weight = 1) {
+  return { weight, color, grad: false, color2: '#ffffff', gradDir: 'v' };
+}
+/** 項目の塗りを返す（旧データは bg から生成） */
+export function fillOf(item) {
+  const f = item.fill;
+  if (!f || !Array.isArray(f.bands) || f.bands.length === 0) return solidFill(item.bg || '#ffffff');
+  return f;
+}
+
 const SIGN_BASE = {
   type: 'sign', name: '', w: 10, h: 2.5, copies: 2,
-  bg: '#000000', font: 'Noto Sans JP', weight: 700,
+  bg: '#000000', fill: solidFill('#000000'), font: 'Noto Sans JP', weight: 700,
   padding: 8, colGap: 6, letterSpacing: 0,
   ledDots: false, ledRows: 24,
   kind: { enabled: true, text: '普通', color: '#ffffff', textColor: '#000000', style: 'plain', ratio: 32, radius: 0, en: 'Local' },
@@ -61,7 +75,7 @@ const SIGN_BASE = {
 
 const TEXT_BASE = {
   type: 'text', name: '', w: 8, h: 2, copies: 2,
-  bg: '#ffffff', color: '#000000', text: 'モ1101',
+  bg: '#ffffff', fill: solidFill('#ffffff'), color: '#000000', text: 'モ1101',
   font: 'Noto Sans JP', weight: 700, align: 'center', padding: 8, letterSpacing: 0,
 };
 
@@ -113,7 +127,7 @@ export const PRESETS = [
     id: 'dest-box',
     name: '行先を枠付きに（幕式・賢島）',
     item: {
-      ...SIGN_BASE, name: '幕式 枠付き行先', bg: '#ffffff',
+      ...SIGN_BASE, name: '幕式 枠付き行先', bg: '#ffffff', fill: solidFill('#ffffff'),
       kind: { enabled: false, text: '', color: '#000000', textColor: '#000000', style: 'plain', ratio: 0, radius: 0, en: '' },
       dest: { enabled: true, text: '賢島', color: '#000000', en: 'Kashikojima', style: 'box', boxColor: '#000000', radius: 10 },
       enRatio: 30, enColor: '#000000',
@@ -132,7 +146,7 @@ export const PRESETS = [
     id: 'roll-sign',
     name: '幕式 方向幕（白地・黒文字）',
     item: {
-      ...SIGN_BASE, name: '幕式 方向幕', bg: '#ffffff',
+      ...SIGN_BASE, name: '幕式 方向幕', bg: '#ffffff', fill: solidFill('#ffffff'),
       kind: { text: '急行', color: '#d40000', textColor: '#ffffff', style: 'fill', ratio: 30, radius: 0, en: '' },
       dest: { text: '大阪上本町', color: '#000000', en: 'Osaka-Uehommachi' },
       enRatio: 30, enColor: '#000000',
@@ -142,10 +156,29 @@ export const PRESETS = [
     id: 'roll-sign-simple',
     name: '幕式 行先のみ（英字なし）',
     item: {
-      ...SIGN_BASE, name: '幕式 行先のみ', bg: '#ffffff',
+      ...SIGN_BASE, name: '幕式 行先のみ', bg: '#ffffff', fill: solidFill('#ffffff'),
       kind: { text: '', color: '#000000', textColor: '#000000', style: 'plain', ratio: 0, radius: 0, en: '' },
       dest: { text: '賢島', color: '#000000', en: '' },
       enRatio: 0,
+    },
+  },
+  {
+    id: 'stripe-band',
+    name: '車両帯（3 色ストライプ・文字なし）',
+    item: {
+      ...SIGN_BASE, name: '車両帯 ストライプ', w: 20, h: 3, copies: 2, bg: '#c8102e',
+      fill: { mode: 'rows', bands: [makeBand('#c8102e', 40), makeBand('#ffffff', 20), makeBand('#1d3f8f', 40)] },
+      kind: { enabled: false, text: '', color: '#ffffff', textColor: '#000000', style: 'plain', ratio: 30, radius: 0, en: '' },
+      dest: { enabled: false, text: '', color: '#ffffff', en: '', style: 'plain', boxColor: '#ffffff', radius: 0 },
+      station: { enabled: false, text: '', twoLine: true, style: 'box', color: '#2f4fd0', textColor: '#ffffff', size: 95, radius: 18 },
+    },
+  },
+  {
+    id: 'gradient-plate',
+    name: '車番（グラデーション地）',
+    item: {
+      ...TEXT_BASE, name: '車番 グラデ地', text: '1101', color: '#ffffff', bg: '#1d3f8f',
+      fill: { mode: 'solid', bands: [{ weight: 1, color: '#1d3f8f', grad: true, color2: '#7fb2ff', gradDir: 'v' }] },
     },
   },
   {
@@ -219,6 +252,9 @@ export function normalizeProject(raw) {
       m.station = { ...SIGN_BASE.station, ...(it.station || {}) };
       if (!m.enLayout) m.enLayout = 'below';
     }
+    if (!it.fill || !Array.isArray(it.fill.bands) || !it.fill.bands.length) m.fill = solidFill(it.bg || base.bg || '#ffffff');
+    else m.fill = { mode: it.fill.mode || 'solid', bands: it.fill.bands.map(b => ({ ...makeBand('#ffffff'), ...b })) };
+    m.bg = m.fill.bands[0].color;
     if (!m.id) m.id = uid();
     return m;
   });
