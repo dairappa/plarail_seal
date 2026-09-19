@@ -27,9 +27,7 @@ jobs:
       - uses: actions/configure-pages@v5
       # 配信するのはアプリ本体だけ（テストや package.json は含めない）
       - name: Collect site files
-        run: |
-          mkdir -p dist
-          cp -r index.html css js .nojekyll dist/
+        run: sh scripts/build-dist.sh "${GITHUB_SHA::8}"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

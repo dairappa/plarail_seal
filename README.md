@@ -55,6 +55,7 @@ npm run test:a11y  # アクセシビリティテストのみ
 テストは 2 本あります。
 
 - `tests/smoke.mjs` … 書き出しピクセル数・配置・キャリブレーション・自動保存
+- `tests/dist.mjs` … 配信物の検証。ビルドスクリプトでバージョンが付き、dist 版がそのまま起動すること
 - `tests/a11y.mjs` … キーボード操作。すべての操作要素にアクセシブルネームがあること、Tab 順が画面の並びどおりであること、
   値を変えて Tab しても次の欄へ進むこと（フォーム再構築でフォーカスを失わない）、シール一覧が矢印キー / Delete / Ctrl+D / Alt+↑↓ で操作できること、
   色見本がグループで 1 つの Tab 停止であること、ダイアログを閉じたときフォーカスが戻ること
@@ -76,7 +77,9 @@ npm run test:a11y  # アクセシビリティテストのみ
 もし Actions が「Pages が有効になっていない」旨で失敗したら、リポジトリの Settings → Pages で
 **Source を「GitHub Actions」** にしてから、Actions タブの「Deploy to GitHub Pages」を Run workflow で再実行してください。
 
-ビルドは不要で、リポジトリ直下をそのまま配信します（`.nojekyll` で Jekyll 処理を止めています）。
+配信物は `scripts/build-dist.sh` が `dist/` に集めます（`index.html`, `css/`, `js/`, `.nojekyll`）。
+このとき CSS / JS の参照とモジュール間の import にコミット SHA のバージョン（`?v=xxxxxxxx`）を付けます。
+GitHub Pages は静的ファイルを 10 分キャッシュするので、これがないと更新直後に「HTML は新しいのに CSS / JS が古い」状態になります。
 相対パスだけで構成しているので、`/plarail_seal/` のようなサブパス配下でも動きます。
 
 ## 参考
