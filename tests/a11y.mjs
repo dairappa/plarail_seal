@@ -144,6 +144,41 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(50);
 c('Escape で閉じ、フォーカスが「使い方」ボタンに戻る', (await focused()) === '#btn-help' && !(await page.evaluate(() => document.getElementById('help').open)));
 
+// ---------------------------------------------------------------- 8. モバイル幅: 編集 / プレビュー切替
+await page.setViewportSize({ width: 400, height: 800 });
+await page.waitForTimeout(100);
+const vis = () => page.evaluate(() => ({
+  panel: document.querySelector('.panel').getClientRects().length > 0,
+  preview: document.querySelector('.preview').getClientRects().length > 0,
+  bar: document.querySelector('.view-switch').getClientRects().length > 0,
+  pressed: document.getElementById('view-preview').getAttribute('aria-pressed'),
+  scrollW: document.documentElement.scrollWidth <= window.innerWidth,
+}));
+let v = await vis();
+c('モバイル幅では切替バーが出て、初期状態はプレビュー非表示', v.bar && v.panel && !v.preview && v.pressed === 'false', JSON.stringify(v));
+c('モバイル幅で横スクロールが出ない', v.scrollW);
+await page.click('#view-preview');
+await page.waitForTimeout(100);
+v = await vis();
+const canvasDrawn = await page.evaluate(() => document.getElementById('preview').width > 0 && document.getElementById('preview').getBoundingClientRect().width > 100);
+c('「プレビュー」でプレビューだけが表示され、キャンバスが描画される', !v.panel && v.preview && v.pressed === 'true' && canvasDrawn, JSON.stringify(v));
+await page.focus('#view-preview');
+await page.keyboard.press('ArrowLeft');
+await page.waitForTimeout(50);
+v = await vis();
+c('← キーで「編集」に戻り、フォーカスも移る', v.panel && !v.preview && (await focused()) === '#view-edit', JSON.stringify(v));
+await page.reload();
+await page.waitForFunction(() => window.__app && document.querySelectorAll('#item-list li').length > 0);
+await page.click('#view-preview');
+await page.reload();
+await page.waitForFunction(() => window.__app && document.querySelectorAll('#item-list li').length > 0);
+v = await vis();
+c('選んだ表示が再読み込み後も保持される', v.preview && !v.panel, JSON.stringify(v));
+await page.setViewportSize({ width: 1400, height: 900 });
+await page.waitForTimeout(100);
+v = await vis();
+c('デスクトップ幅に戻すと両方表示され、切替バーは消える', v.panel && v.preview && !v.bar, JSON.stringify(v));
+
 c('エラーなし', errors.length === 0, errors.join(' | '));
 await close();
 process.exit(checker.failed ? 1 : 0);

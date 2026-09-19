@@ -109,6 +109,31 @@ function init() {
   $('zoom-fit').addEventListener('click', () => { zoom = 1; update(); });
   window.addEventListener('resize', () => renderPreview());
 
+  // モバイルの 編集 / プレビュー 切替
+  const VIEW_KEY = 'plarail-seal-view';
+  const setView = (v, focus) => {
+    document.body.dataset.view = v;
+    $('view-edit').setAttribute('aria-pressed', String(v === 'edit'));
+    $('view-preview').setAttribute('aria-pressed', String(v === 'preview'));
+    try { localStorage.setItem(VIEW_KEY, v); } catch (e) { /* ignore */ }
+    if (v === 'preview') renderPreview();          // 非表示中は描けていないので表示時に描く
+    if (focus) $(v === 'edit' ? 'view-edit' : 'view-preview').focus();
+  };
+  let savedView = 'edit';
+  try { savedView = localStorage.getItem(VIEW_KEY) || 'edit'; } catch (e) { /* ignore */ }
+  setView(savedView === 'preview' ? 'preview' : 'edit');
+  $('view-edit').addEventListener('click', () => setView('edit'));
+  $('view-preview').addEventListener('click', () => setView('preview'));
+  // 左右キーでも切り替えられるように（タブ的な操作）
+  for (const id of ['view-edit', 'view-preview']) {
+    $(id).addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); setView(id === 'view-edit' ? 'preview' : 'edit', true); }
+    });
+  }
+  // デスクトップ幅に戻ったらプレビューを描き直す（モバイルで非表示だった場合に備える）
+  const mq = window.matchMedia('(max-width: 900px)');
+  mq.addEventListener('change', () => renderPreview());
+
   setImageLoadedCallback(() => renderPreview());
   if (document.fonts) {
     document.fonts.addEventListener('loadingdone', () => renderPreview());
@@ -185,6 +210,7 @@ function renderAll() {
   renderList();
   renderEditor();
   renderPreview();
+  updateLayoutWarning();
   restoreFocus(key, selectAll);
   ensureFonts().then(() => renderPreview());
 }
@@ -225,7 +251,7 @@ function syncSheetForm() {
   const u = usableArea(project);
   let note;
   if (project.printMode === 'cvs-border') {
-    note = `「フチあり」で印刷すると全体が約 ${Math.round((1 - 100 / project.scaleK) * 10) * 10 / 10}% 縮小されるため、書き出し時に ${project.scaleK}% に拡大して打ち消します。L判の既定値は実機で測った値、2L判・スクエアは目安です。機体差もあるので、ものさしを印刷して実測すると確実です。`;
+    note = `「フチあり」で印刷すると全体が約 ${Math.round((1 - 100 / project.scaleK) * 1000) / 10}% 縮小されるため、書き出し時に ${project.scaleK}% に拡大して打ち消します。L判の既定値は実機で測った値、2L判・スクエアは目安です。機体差もあるので、ものさしを印刷して実測すると確実です。`;
   } else if (project.printMode === 'cvs-borderless') {
     note = `「フチなし」は用紙より大きく拡大して印刷され、周囲が切れます。既定値は目安です。必ずものさしで実測してください。`;
   } else {
@@ -550,6 +576,7 @@ function renderEditor() {
 function renderPreview() {
   const canvas = $('preview');
   const wrap = $('preview-scroll');
+  if (wrap.clientWidth === 0) return;          // モバイルでプレビュー非表示中
   const availW = Math.max(200, wrap.clientWidth - 48);
   const availH = Math.max(200, wrap.clientHeight - 48);
   const fit = Math.min(availW / project.paper.w, availH / project.paper.h);
@@ -563,12 +590,15 @@ function renderPreview() {
   const ctx = canvas.getContext('2d');
   lastLayout = renderSheet(ctx, project, s, { mode: 'preview' });
   $('zoom-label').textContent = `${Math.round(zoom * 100)}%`;
+  updateLayoutWarning(lastLayout);
+}
 
+function updateLayoutWarning(lay = layoutSheet(project)) {
   const warn = $('layout-warn');
   const total = project.items.reduce((a, b) => a + Math.max(0, Math.floor(b.copies || 0)), 0);
-  if (lastLayout.overflow > 0) {
+  if (lay.overflow > 0) {
     warn.hidden = false;
-    warn.textContent = `${total} 枚中 ${lastLayout.overflow} 枚がシートに収まりません。枚数・間隔・余白を減らすか、用紙を大きくしてください。`;
+    warn.textContent = `${total} 枚中 ${lay.overflow} 枚がシートに収まりません。枚数・間隔・余白を減らすか、用紙を大きくしてください。`;
   } else {
     warn.hidden = true;
   }
