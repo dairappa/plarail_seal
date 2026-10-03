@@ -1,7 +1,8 @@
 // UI とアプリ状態
 import { PAPERS, FONTS, LED_SWATCHES, PRESETS, defaultProject, makeItem, itemLabel, paperById, defaultScaleK, scaleKFor, calibKey, usableArea, signIsBlank, fillOf, makeBand } from './model.js';
 import { layoutSheet, rulerLength } from './layout.js';
-import { renderSheet, renderItemThumb, fontsInUse, setImageLoadedCallback } from './render.js';
+import { renderSheet, renderItemThumb, fontsInUse, setImageLoadedCallback, getImage, getEditedImage } from './render.js';
+import { normalizeEdits, makeRecolor, detectBorderColor, colorAt, downscaleDataURL, hasEdits } from './imageedit.js';
 import { exportPNG, exportCanvas, printSheet } from './export.js';
 import { saveLocal, loadLocal, clearLocal, exportProjectJSON, readProjectFile, readImageFile } from './storage.js';
 
@@ -134,7 +135,16 @@ function init() {
   const mq = window.matchMedia('(max-width: 900px)');
   mq.addEventListener('change', () => renderPreview());
 
-  setImageLoadedCallback(() => renderPreview());
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && pickTarget) {
+      e.preventDefault();
+      const k = pickTarget.key; pickTarget = null;
+      requestFocus(k + ':pick'); update();
+      toast('スポイトを解除しました');
+    }
+  });
+
+  setImageLoadedCallback(() => { renderPreview(); if (project.items.find(i => i.id === selectedId)?.type === 'image') update(); });
   if (document.fonts) {
     document.fonts.addEventListener('loadingdone', () => renderPreview());
   }
@@ -186,6 +196,9 @@ async function ensureFonts() {
 // ------------------------------------------------------------------ 更新
 // 再描画は次のタスクまで遅らせる。change イベント（Tab で離れた瞬間）に同期でフォームを
 // 作り直すと、ブラウザが移そうとしていた次の要素ごと消えてフォーカスが失われるため。
+// スポイト: 元画像をクリックして色を拾う対象（null なら無効）
+let pickTarget = null;     // { key, label, apply(hex) }
+
 let renderTimer = null;
 let focusRequest = null;   // 再描画後にフォーカスを当てたい data-key
 
@@ -319,6 +332,7 @@ function renderList() {
 }
 
 function selectItem(id) {
+  if (selectedId !== id) pickTarget = null;
   selectedId = id;
   requestFocus('item:' + id);
   update();
@@ -393,7 +407,7 @@ function renderEditor() {
     c.addEventListener('change', () => { set(c.checked); update(); });
     l.append(c, document.createTextNode(' ' + label)); return l;
   };
-  const color = (label, get, set) => {
+  const color = (label, get, set, opts = {}) => {
     const wrap = document.createElement('div'); wrap.className = 'field';
     const l = document.createElement('label'); l.textContent = label;
     const cf = document.createElement('div'); cf.className = 'color-field';
@@ -423,7 +437,25 @@ function renderEditor() {
       return b;
     });
     sw.append(...btns);
-    cf.append(c, t, sw); wrap.append(l, cf); return wrap;
+    cf.append(c, t);
+    if (opts.pick) {
+      // スポイト: 押してから元画像をクリックすると、その色が入る
+      const key = keyFor(label);
+      const active = pickTarget?.key === key;
+      const pb = document.createElement('button'); pb.type = 'button'; pb.className = 'btn small pick-btn';
+      pb.textContent = active ? 'クリックで色を拾う…' : 'スポイト';
+      pb.setAttribute('aria-pressed', String(active));
+      pb.setAttribute('aria-label', `${label}を元画像から拾う`);
+      pb.dataset.key = key + ':pick';
+      pb.addEventListener('click', () => {
+        pickTarget = active ? null : { key, label, apply: v => { c.value = v; t.value = v; set(v); } };
+        if (!active) requestFocus(`${it.id}:original`);
+        update();
+      });
+      cf.append(pb);
+    }
+    if (opts.extra) cf.append(opts.extra);
+    cf.append(sw); wrap.append(l, cf); return wrap;
   };
   const fontSel = () => sel(FONTS.map(f => [f.id, f.name]), () => it.font, v => {
     it.font = v; const f = FONTS.find(x => x.id === v);
@@ -432,6 +464,150 @@ function renderEditor() {
   const weightSel = () => {
     const f = FONTS.find(x => x.id === it.font) || FONTS[1];
     return sel(f.weights.map(w => [w, w >= 800 ? `極太 (${w})` : w >= 700 ? `太字 (${w})` : w >= 500 ? `中 (${w})` : `標準 (${w})`]), () => it.weight, v => { it.weight = Number(v); });
+  };
+
+  /** 画像の簡易編集（背景の透明化・色の置き換え・単色化・余白の切り詰め） */
+  const imageEditor = () => {
+    it.edits = normalizeEdits(it.edits);
+    const E = it.edits;
+    const src = getImage(it.src);
+
+    // 元画像（スポイト用）と編集後を並べて表示
+    const sp = sec('画像の編集');
+    const pair = document.createElement('div'); pair.className = 'img-pair';
+    const mkView = (title, cv, extraClass) => {
+      const fig = document.createElement('figure'); fig.className = 'img-view ' + (extraClass || '');
+      const cap = document.createElement('figcaption'); cap.textContent = title;
+      fig.append(cv, cap); return fig;
+    };
+    const orig = document.createElement('canvas'); orig.className = 'checker';
+    orig.dataset.key = `${it.id}:original`;
+    orig.setAttribute('role', 'img');
+    const edited = document.createElement('canvas'); edited.className = 'checker';
+    edited.setAttribute('role', 'img'); edited.setAttribute('aria-label', '編集後の画像');
+    if (src) {
+      const k = Math.min(1, 480 / Math.max(src.naturalWidth, src.naturalHeight));
+      orig.width = Math.round(src.naturalWidth * k); orig.height = Math.round(src.naturalHeight * k);
+      orig.getContext('2d').drawImage(src, 0, 0, orig.width, orig.height);
+      const ed = getEditedImage(it);
+      const ew = ed.naturalWidth || ed.width, eh = ed.naturalHeight || ed.height;
+      const k2 = Math.min(1, 480 / Math.max(ew, eh));
+      edited.width = Math.round(ew * k2); edited.height = Math.round(eh * k2);
+      edited.getContext('2d').drawImage(ed, 0, 0, edited.width, edited.height);
+    }
+    if (pickTarget) {
+      orig.classList.add('picking');
+      orig.tabIndex = 0;
+      orig.setAttribute('aria-label', `元画像。クリックすると「${pickTarget.label}」にその色が入ります。Esc で解除`);
+      orig.addEventListener('click', ev => {
+        if (!src || !pickTarget) return;
+        const r = orig.getBoundingClientRect();
+        const x = (ev.clientX - r.left) / r.width * src.naturalWidth;
+        const y = (ev.clientY - r.top) / r.height * src.naturalHeight;
+        const c = document.createElement('canvas'); c.width = src.naturalWidth; c.height = src.naturalHeight;
+        const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(src, 0, 0);
+        const hex = colorAt(cx.getImageData(0, 0, c.width, c.height), x, y);
+        const t = pickTarget; pickTarget = null;
+        t.apply(hex);
+        requestFocus(t.key + ':pick');
+        update();
+        toast(`「${t.label}」を ${hex} にしました`);
+      });
+    } else {
+      orig.setAttribute('aria-label', '元画像');
+    }
+    pair.append(mkView(pickTarget ? '元画像（クリックで色を拾う）' : '元画像', orig, pickTarget ? 'is-picking' : ''), mkView('編集後', edited));
+    sp.appendChild(pair);
+    if (pickTarget) {
+      const hint = document.createElement('p'); hint.className = 'warn'; hint.setAttribute('role', 'status');
+      hint.textContent = `元画像をクリックすると「${pickTarget.label}」に色が入ります。Esc で解除。`;
+      sp.appendChild(hint);
+    }
+
+    // 1. 背景の透明化
+    const sb = sec('背景の透明化');
+    sb.appendChild(check('背景を透明にする', () => E.removeBg.enabled, v => {
+      E.removeBg.enabled = v;
+      // 初めて有効にしたときは外周の色から背景色を推定する
+      if (v && src && !E.removeBg._detected) {
+        const c = document.createElement('canvas'); c.width = src.naturalWidth; c.height = src.naturalHeight;
+        const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(src, 0, 0);
+        E.removeBg.color = detectBorderColor(cx.getImageData(0, 0, c.width, c.height));
+        E.removeBg._detected = true;
+      }
+    }));
+    if (E.removeBg.enabled) {
+      const auto = document.createElement('button'); auto.type = 'button'; auto.className = 'btn small';
+      auto.textContent = '外周から推定'; auto.dataset.key = keyFor('外周から推定');
+      auto.setAttribute('aria-label', '背景色を画像の外周から推定する');
+      auto.addEventListener('click', () => {
+        if (!src) return;
+        const c = document.createElement('canvas'); c.width = src.naturalWidth; c.height = src.naturalHeight;
+        const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(src, 0, 0);
+        E.removeBg.color = detectBorderColor(cx.getImageData(0, 0, c.width, c.height));
+        update(); toast(`背景色を ${E.removeBg.color} と推定しました`);
+      });
+      row(sb, color('消す色', () => E.removeBg.color, v => { E.removeBg.color = v; }, { pick: true, extra: auto }));
+      row(sb, field('範囲', sel([['edge', '外周からつながった部分だけ'], ['all', '画像全体の同じ色']], () => E.removeBg.mode, v => { E.removeBg.mode = v; })));
+      row(sb, field('許容範囲 %', num(() => E.removeBg.tolerance, v => { E.removeBg.tolerance = v; }, 1, 0)), field('なじませ %', num(() => E.removeBg.feather, v => { E.removeBg.feather = v; }, 1, 0)));
+      const n1 = document.createElement('p'); n1.className = 'note';
+      n1.textContent = '「外周からつながった部分だけ」なら、文字の内側の白などは残ります。消え残りがあれば許容範囲を上げ、ロゴまで欠けるなら下げてください。なじませは輪郭の白いフチを抑えます。';
+      sb.appendChild(n1);
+    }
+
+    // 2. 色の置き換え
+    const sr = sec('色の置き換え');
+    E.recolors.forEach((r, i) => {
+      const prev = section; section = `色の置き換え:${i + 1}`;
+      const box = document.createElement('div'); box.className = 'band';
+      const head = document.createElement('div'); head.className = 'band-head';
+      const ttl = document.createElement('span'); ttl.textContent = `置き換え ${i + 1}`;
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'btn small';
+      del.textContent = '✕'; del.setAttribute('aria-label', `置き換え ${i + 1} を削除`); del.dataset.key = keyFor('削除');
+      del.addEventListener('click', () => { E.recolors.splice(i, 1); requestFocus(`${it.id}:色の置き換え:追加`); update(); });
+      head.append(ttl, del); box.appendChild(head);
+      row(box, color('元の色', () => r.from, v => { r.from = v; }, { pick: true }));
+      row(box, color('新しい色', () => r.to, v => { r.to = v; }));
+      row(box, field('許容範囲 %', num(() => r.tolerance, v => { r.tolerance = v; }, 1, 0)));
+      sr.appendChild(box);
+      section = prev;
+    });
+    const addR = document.createElement('button'); addR.type = 'button'; addR.className = 'btn small';
+    addR.textContent = '＋ 置き換えを追加'; addR.dataset.key = `${it.id}:色の置き換え:追加`;
+    addR.addEventListener('click', () => {
+      E.recolors.push(makeRecolor());
+      const n = E.recolors.length;
+      // 追加した直後に「元の色」のスポイトを有効にする（すぐ画像をクリックできる）
+      const key = `${it.id}:色の置き換え:${n}:元の色`;
+      const r = E.recolors[n - 1];
+      pickTarget = { key, label: '元の色', apply: v => { r.from = v; } };
+      requestFocus(`${it.id}:original`);
+      update();
+    });
+    sr.appendChild(addR);
+    const n2 = document.createElement('p'); n2.className = 'note';
+    n2.textContent = '元の色に近い部分を新しい色へずらします。陰影や輪郭のなめらかさは保たれます。';
+    sr.appendChild(n2);
+
+    // 3. 単色化・4. 切り詰め
+    const sm = sec('仕上げ');
+    sm.appendChild(check('単色にする（シルエット）', () => E.mono.enabled, v => { E.mono.enabled = v; }));
+    if (E.mono.enabled) row(sm, color('単色の色', () => E.mono.color, v => { E.mono.color = v; }));
+    sm.appendChild(check('透明な余白を切り詰める', () => E.trim, v => { E.trim = v; }));
+    const acts = document.createElement('div'); acts.className = 'row';
+    const fitBtn = document.createElement('button'); fitBtn.type = 'button'; fitBtn.className = 'btn small';
+    fitBtn.textContent = '高さを画像の縦横比に合わせる'; fitBtn.dataset.key = keyFor('縦横比');
+    fitBtn.addEventListener('click', () => {
+      const ed = getEditedImage(it); if (!ed) return;
+      const ew = ed.naturalWidth || ed.width, eh = ed.naturalHeight || ed.height;
+      it.h = Math.round(it.w * eh / ew * 10) / 10;
+      update(); toast(`高さを ${it.h} mm にしました（幅 ${it.w} mm 基準）`);
+    });
+    const reset = document.createElement('button'); reset.type = 'button'; reset.className = 'btn small danger';
+    reset.textContent = '編集をすべて戻す'; reset.dataset.key = keyFor('リセット');
+    reset.disabled = !hasEdits(E);
+    reset.addEventListener('click', () => { it.edits = normalizeEdits(null); pickTarget = null; requestFocus(keyFor('縦横比')); update(); toast('画像の編集を元に戻しました'); });
+    acts.append(fitBtn, reset); sm.appendChild(acts);
   };
 
   /** 背景（単色 / ストライプ / グラデーション）の編集 UI */
@@ -556,12 +732,23 @@ function renderEditor() {
   } else if (it.type === 'image') {
     const s1 = sec('画像');
     const f = document.createElement('input'); f.type = 'file'; f.accept = 'image/*'; f.dataset.key = keyFor('画像ファイル');
-    f.addEventListener('change', async () => { const file = f.files[0]; if (file) { it.src = await readImageFile(file); update(); } });
+    f.addEventListener('change', async () => {
+      const file = f.files[0]; if (!file) return;
+      try {
+        const r = await downscaleDataURL(await readImageFile(file));
+        it.src = r.src;
+        if (!it.edits) it.edits = normalizeEdits(null);
+        update();
+        toast(`画像を読み込みました（${r.w}×${r.h} px）`);
+      } catch (e) { toast('画像を読み込めませんでした。PNG / JPEG / SVG を選んでください'); }
+    });
     s1.appendChild(field('画像ファイル（PNG/JPEG/SVG）', f));
-    row(s1, field('収め方', sel([['cover', '枠いっぱい（はみ出しは切る）'], ['contain', '全体を収める']], () => it.fit, v => { it.fit = v; })), color('背景色', () => it.bg, v => { it.bg = v; }));
+    row(s1, field('収め方', sel([['contain', '全体を収める'], ['cover', '枠いっぱい（はみ出しは切る）']], () => it.fit, v => { it.fit = v; })));
     const note = document.createElement('p'); note.className = 'note';
-    note.textContent = '画像はプロジェクトに埋め込まれます。大きな画像は縮小してから読み込むと保存が軽くなります。';
+    note.textContent = `画像はプロジェクトに埋め込まれます。長辺 1200 px を超える画像は読み込み時に縮小します。`;
     s1.appendChild(note);
+    if (it.src) imageEditor();
+    backgroundEditor();
   }
 
   const thumbWrap = sec('拡大プレビュー');

@@ -144,7 +144,60 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(50);
 c('Escape で閉じ、フォーカスが「使い方」ボタンに戻る', (await focused()) === '#btn-help' && !(await page.evaluate(() => document.getElementById('help').open)));
 
-// ---------------------------------------------------------------- 8. モバイル幅: 編集 / プレビュー切替
+// ---------------------------------------------------------------- 8. 画像の編集（キーボードとスポイト）
+const pngB64 = await page.evaluate(() => {
+  const c = document.createElement('canvas'); c.width = 100; c.height = 60;
+  const x = c.getContext('2d');
+  x.fillStyle = '#ffffff'; x.fillRect(0, 0, 100, 60);
+  x.fillStyle = '#ff0000'; x.fillRect(20, 10, 60, 40);
+  return c.toDataURL('image/png').split(',')[1];
+});
+await page.selectOption('#add-type', 'image');
+await page.click('#btn-add');
+await page.waitForTimeout(100);
+const imgId = await page.evaluate(() => window.__app.project.items.at(-1).id);
+await page.setInputFiles(`[data-key="${imgId}:画像:画像ファイル"]`, { name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(pngB64, 'base64') });
+await page.waitForFunction(id => window.__app.project.items.find(i => i.id === id).src && document.querySelector(`[data-key="${id}:original"]`), imgId);
+await page.waitForTimeout(200);
+
+const unnamedImg = await page.evaluate(() => {
+  const nameOf = el => el.getAttribute('aria-label') || (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.textContent.trim()) || el.closest('label')?.textContent.trim() || (el.textContent || '').trim();
+  return [...document.querySelectorAll('#editor input, #editor select, #editor button, #editor [role=img]')]
+    .filter(el => el.getClientRects().length > 0 && el.type !== 'file' || el.type === 'file').filter(el => !nameOf(el)).map(el => el.dataset.key || el.tagName);
+});
+c('画像の編集欄の操作要素にもアクセシブルネームがある', unnamedImg.length === 0, unnamedImg.join(', '));
+
+const rbKey = `${imgId}:背景の透明化:背景を透明にする`;
+await page.focus(`[data-key="${rbKey}"]`);
+await page.keyboard.press('Space');
+await page.waitForTimeout(100);
+let st = await page.evaluate(id => window.__app.project.items.find(i => i.id === id).edits.removeBg, imgId);
+c('「背景を透明にする」を Space でオン → 背景色を外周から推定し、フォーカスも残る', st.enabled && st.color === '#ffffff' && (await focused()) === rbKey, JSON.stringify(st));
+
+// 置き換えを追加 → スポイトが自動で有効 → 元画像の赤い部分をクリック
+await page.click(`[data-key="${imgId}:色の置き換え:追加"]`);
+await page.waitForTimeout(100);
+const pickKey = `${imgId}:色の置き換え:1:元の色:pick`;
+let pressed = await page.getAttribute(`[data-key="${pickKey}"]`, 'aria-pressed');
+c('置き換えを追加するとスポイトが有効になり、元画像にフォーカスが移る', pressed === 'true' && (await focused()) === `${imgId}:original`, `pressed=${pressed} focus=${await focused()}`);
+const box = await page.locator(`[data-key="${imgId}:original"]`).boundingBox();
+await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.5);
+await page.waitForTimeout(150);
+const from = await page.evaluate(id => window.__app.project.items.find(i => i.id === id).edits.recolors[0].from, imgId);
+pressed = await page.getAttribute(`[data-key="${pickKey}"]`, 'aria-pressed');
+c('元画像をクリックすると色が入り、スポイトは解除され、ボタンにフォーカスが戻る', from === '#ff0000' && pressed === 'false' && (await focused()) === pickKey, `from=${from} pressed=${pressed} focus=${await focused()}`);
+
+// スポイトを Esc で解除
+await page.focus(`[data-key="${pickKey}"]`);
+await page.keyboard.press('Enter');
+await page.waitForTimeout(100);
+pressed = await page.getAttribute(`[data-key="${pickKey}"]`, 'aria-pressed');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(100);
+const pressedAfter = await page.getAttribute(`[data-key="${pickKey}"]`, 'aria-pressed');
+c('スポイトは Enter で有効、Esc で解除され、フォーカスがボタンに戻る', pressed === 'true' && pressedAfter === 'false' && (await focused()) === pickKey, `${pressed} → ${pressedAfter} focus=${await focused()}`);
+
+// ---------------------------------------------------------------- 9. モバイル幅: 編集 / プレビュー切替
 await page.setViewportSize({ width: 400, height: 800 });
 await page.waitForTimeout(100);
 const vis = () => page.evaluate(() => ({

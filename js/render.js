@@ -1,12 +1,14 @@
 // キャンバス描画（プレビュー・書き出し共通）。座標は mm、s = px/mm。
 import { layoutSheet, MARK_LEN, MARK_GAP } from './layout.js';
 import { fillOf } from './model.js';
+import { applyEdits, hasEdits } from './imageedit.js';
 
 const imageCache = new Map();
 let onImageLoaded = null;
 export function setImageLoadedCallback(fn) { onImageLoaded = fn; }
 
-function getImage(src) {
+/** 元画像（読み込み完了前は null） */
+export function getImage(src) {
   if (!src) return null;
   let img = imageCache.get(src);
   if (!img) {
@@ -16,6 +18,23 @@ function getImage(src) {
     imageCache.set(src, img);
   }
   return img.complete && img.naturalWidth > 0 ? img : null;
+}
+
+// 加工済み画像のキャッシュ（同じ元画像・同じ編集なら再計算しない）
+const editedCache = new Map();
+/** 編集を適用した画像（キャンバス）。元画像が未読み込みなら null */
+export function getEditedImage(item) {
+  const img = getImage(item.src);
+  if (!img) return null;
+  if (!hasEdits(item.edits)) return img;
+  const key = item.src.length + ':' + item.src.slice(-64) + ':' + JSON.stringify(item.edits);
+  let c = editedCache.get(key);
+  if (!c) {
+    c = applyEdits(img, item.edits);
+    if (editedCache.size > 30) editedCache.delete(editedCache.keys().next().value);
+    editedCache.set(key, c);
+  }
+  return c;
 }
 
 /** すべての項目で使うフォント指定を列挙（プリロード用） */
@@ -423,7 +442,7 @@ function drawTextItem(ctx, item, x, y, s) {
 }
 
 function drawImageItem(ctx, item, x, y, s, bleed) {
-  const img = getImage(item.src);
+  const img = getEditedImage(item);
   if (!img) {
     // プレースホルダ
     ctx.strokeStyle = '#999'; ctx.lineWidth = 1;
@@ -437,8 +456,9 @@ function drawImageItem(ctx, item, x, y, s, bleed) {
   const cover = item.fit !== 'contain';
   const bx = cover ? x - bleed : x, by = cover ? y - bleed : y;
   const bw = cover ? item.w + 2 * bleed : item.w, bh = cover ? item.h + 2 * bleed : item.h;
-  const sc = cover ? Math.max(bw / img.naturalWidth, bh / img.naturalHeight) : Math.min(bw / img.naturalWidth, bh / img.naturalHeight);
-  const dw = img.naturalWidth * sc, dh = img.naturalHeight * sc;
+  const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  const sc = cover ? Math.max(bw / iw, bh / ih) : Math.min(bw / iw, bh / ih);
+  const dw = iw * sc, dh = ih * sc;
   const dx = bx + (bw - dw) / 2, dy = by + (bh - dh) / 2;
   ctx.save();
   ctx.beginPath(); ctx.rect(bx * s, by * s, bw * s, bh * s); ctx.clip();

@@ -97,6 +97,20 @@ textarea { resize: vertical; min-height: 60px; }
 .band-actions { display: flex; gap: 2px; }
 .band-actions .btn.small { padding: 1px 6px; }
 .band .field { margin-bottom: 4px; }
+.img-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 6px; }
+.img-view { margin: 0; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.img-view figcaption { font-size: 11px; color: var(--muted); text-align: center; }
+.img-view canvas { width: 100%; height: auto; max-height: 180px; object-fit: contain; border: 1px solid var(--border); border-radius: 4px; }
+/* 透明部分が分かる市松模様 */
+canvas.checker {
+  background-color: #fff;
+  background-image: linear-gradient(45deg, #d9d6d0 25%, transparent 25%), linear-gradient(-45deg, #d9d6d0 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d9d6d0 75%), linear-gradient(-45deg, transparent 75%, #d9d6d0 75%);
+  background-size: 12px 12px; background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+}
+canvas.picking { cursor: crosshair; outline: 2px solid var(--accent); outline-offset: 1px; }
+.img-view.is-picking figcaption { color: var(--link); font-weight: 700; }
+.pick-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .color-field { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .color-field input[type=color] { flex: none; }
 .color-field input[type=text] { flex: 1 1 80px; min-width: 80px; max-width: 110px; font-family: ui-monospace, monospace; }

@@ -82,7 +82,7 @@ const TEXT_BASE = {
 
 const IMAGE_BASE = {
   type: 'image', name: '', w: 10, h: 3, copies: 1,
-  bg: '#ffffff', src: '', fit: 'cover',
+  bg: '#ffffff', fill: solidFill('#ffffff'), src: '', fit: 'contain', edits: null,
 };
 
 export const PRESETS = [
