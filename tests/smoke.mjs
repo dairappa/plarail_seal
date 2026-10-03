@@ -113,6 +113,10 @@ const imgRes = await page.evaluate(async () => {
   };
   const px = (c, X, Y) => [...c.getContext('2d').getImageData(X, Y, 1, 1).data];
   const src = mk();
+  // 背景が透明でロゴが外周に触れている画像（受け取った SR ロゴと同じ状況）
+  const tp = document.createElement('canvas'); tp.width = 100; tp.height = 60;
+  const tx = tp.getContext('2d'); tx.fillStyle = '#3b4890'; tx.fillRect(0, 20, 40, 40);
+  const transparentBg = ie.detectBorderColor(tx.getImageData(0, 0, 100, 60));
   const bg = ie.detectBorderColor(src.getContext('2d').getImageData(0, 0, 100, 60));
   const edge = ie.applyEdits(src, { ...ie.defaultEdits(), removeBg: { enabled: true, color: '#ffffff', tolerance: 10, mode: 'edge', feather: 0 } });
   const all = ie.applyEdits(src, { ...ie.defaultEdits(), removeBg: { enabled: true, color: '#ffffff', tolerance: 10, mode: 'all', feather: 0 } });
@@ -133,12 +137,13 @@ const imgRes = await page.evaluate(async () => {
   const exportCorner = at(1, 1), exportRed = at(6, 4);
   app.project = JSON.parse(saved);
   return {
-    bg, edgeCorner: px(edge, 2, 2)[3], edgeHole: px(edge, 50, 30)[3], edgeRed: px(edge, 30, 15),
+    transparentBg, bg, edgeCorner: px(edge, 2, 2)[3], edgeHole: px(edge, 50, 30)[3], edgeRed: px(edge, 30, 15),
     allHole: px(all, 50, 30)[3], recRed: px(rec, 30, 15), recBlue: px(rec, 72, 42), recWhite: px(rec, 2, 2),
     monoRed: px(mono, 30, 15), monoBlue: px(mono, 72, 42), trimSize: [trim.width, trim.height], exportCorner, exportRed,
   };
 });
 c('外周の色から背景色を推定', imgRes.bg === '#ffffff', imgRes.bg);
+c('背景がすでに透明な画像では推定しない（ロゴの色を背景と誤認しない）', imgRes.transparentBg === null, String(imgRes.transparentBg));
 c('背景の透明化（外周から）: 外側は透明、内側の白は残る', imgRes.edgeCorner === 0 && imgRes.edgeHole === 255 && imgRes.edgeRed[3] === 255, JSON.stringify(imgRes));
 c('背景の透明化（全体）: 内側の白も透明', imgRes.allHole === 0);
 c('色の置き換え: 赤だけが緑になり、青と白はそのまま', imgRes.recRed[1] > 240 && imgRes.recRed[0] < 15 && imgRes.recBlue[2] > 240 && imgRes.recWhite[0] > 240, JSON.stringify([imgRes.recRed, imgRes.recBlue, imgRes.recWhite]));

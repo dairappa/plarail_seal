@@ -2,7 +2,7 @@
 import { PAPERS, FONTS, LED_SWATCHES, PRESETS, defaultProject, makeItem, itemLabel, paperById, defaultScaleK, scaleKFor, calibKey, usableArea, signIsBlank, fillOf, makeBand } from './model.js';
 import { layoutSheet, rulerLength } from './layout.js';
 import { renderSheet, renderItemThumb, fontsInUse, setImageLoadedCallback, getImage, getEditedImage } from './render.js';
-import { normalizeEdits, makeRecolor, detectBorderColor, colorAt, downscaleDataURL, hasEdits } from './imageedit.js';
+import { normalizeEdits, makeRecolor, detectBorderColor, colorAt, downscaleDataURL, hasEdits, opaqueRatio } from './imageedit.js';
 import { exportPNG, exportCanvas, printSheet } from './export.js';
 import { saveLocal, loadLocal, clearLocal, exportProjectJSON, readProjectFile, readImageFile } from './storage.js';
 
@@ -471,6 +471,17 @@ function renderEditor() {
     it.edits = normalizeEdits(it.edits);
     const E = it.edits;
     const src = getImage(it.src);
+    let srcData = null;
+    const sourceData = () => {
+      if (!srcData && src) {
+        const c = document.createElement('canvas'); c.width = src.naturalWidth; c.height = src.naturalHeight;
+        const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(src, 0, 0);
+        srcData = cx.getImageData(0, 0, c.width, c.height);
+      }
+      return srcData;
+    };
+    const detected = src ? detectBorderColor(sourceData()) : null;
+    const alreadyTransparent = !!src && detected === null;
 
     // 元画像（スポイト用）と編集後を並べて表示
     const sp = sec('画像の編集');
@@ -504,9 +515,7 @@ function renderEditor() {
         const r = orig.getBoundingClientRect();
         const x = (ev.clientX - r.left) / r.width * src.naturalWidth;
         const y = (ev.clientY - r.top) / r.height * src.naturalHeight;
-        const c = document.createElement('canvas'); c.width = src.naturalWidth; c.height = src.naturalHeight;
-        const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(src, 0, 0);
-        const hex = colorAt(cx.getImageData(0, 0, c.width, c.height), x, y);
+        const hex = colorAt(sourceData(), x, y);
         const t = pickTarget; pickTarget = null;
         t.apply(hex);
         requestFocus(t.key + ':pick');
@@ -518,6 +527,15 @@ function renderEditor() {
     }
     pair.append(mkView(pickTarget ? '元画像（クリックで色を拾う）' : '元画像', orig, pickTarget ? 'is-picking' : ''), mkView('編集後', edited));
     sp.appendChild(pair);
+    if (src && hasEdits(E) && orig.width && edited.width) {
+      const before = opaqueRatio(orig.getContext('2d').getImageData(0, 0, orig.width, orig.height));
+      const after = opaqueRatio(edited.getContext('2d').getImageData(0, 0, edited.width, edited.height)) * (edited.width * edited.height) / (orig.width * orig.height);
+      if (before > 0 && after / before < 0.05) {
+        const w = document.createElement('p'); w.className = 'warn'; w.setAttribute('role', 'status');
+        w.textContent = '編集後の画像がほとんど透明になりました。「消す色」がロゴの色になっていないか、許容範囲が大きすぎないか確認してください。';
+        sp.appendChild(w);
+      }
+    }
     if (pickTarget) {
       const hint = document.createElement('p'); hint.className = 'warn'; hint.setAttribute('role', 'status');
       hint.textContent = `元画像をクリックすると「${pickTarget.label}」に色が入ります。Esc で解除。`;
@@ -526,13 +544,21 @@ function renderEditor() {
 
     // 1. 背景の透明化
     const sb = sec('背景の透明化');
+    if (alreadyTransparent) {
+      const n0 = document.createElement('p'); n0.className = 'note';
+      n0.textContent = 'この画像は背景がすでに透明です。透明化は不要です（内側の色を消したいときだけ「画像全体の同じ色」で使ってください）。';
+      sb.appendChild(n0);
+    }
     sb.appendChild(check('背景を透明にする', () => E.removeBg.enabled, v => {
       E.removeBg.enabled = v;
-      // 初めて有効にしたときは外周の色から背景色を推定する
+      // 初めて有効にしたときは外周の色から背景色を推定する。すでに透明なら推定せず「画像全体」にする
       if (v && src && !E.removeBg._detected) {
-        const c = document.createElement('canvas'); c.width = src.naturalWidth; c.height = src.naturalHeight;
-        const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(src, 0, 0);
-        E.removeBg.color = detectBorderColor(cx.getImageData(0, 0, c.width, c.height));
+        if (alreadyTransparent) {
+          E.removeBg.mode = 'all';
+          toast('背景はすでに透明です。消したい色をスポイトで選んでください');
+        } else {
+          E.removeBg.color = detected;
+        }
         E.removeBg._detected = true;
       }
     }));
@@ -540,12 +566,11 @@ function renderEditor() {
       const auto = document.createElement('button'); auto.type = 'button'; auto.className = 'btn small';
       auto.textContent = '外周から推定'; auto.dataset.key = keyFor('外周から推定');
       auto.setAttribute('aria-label', '背景色を画像の外周から推定する');
+      auto.disabled = alreadyTransparent;
       auto.addEventListener('click', () => {
-        if (!src) return;
-        const c = document.createElement('canvas'); c.width = src.naturalWidth; c.height = src.naturalHeight;
-        const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(src, 0, 0);
-        E.removeBg.color = detectBorderColor(cx.getImageData(0, 0, c.width, c.height));
-        update(); toast(`背景色を ${E.removeBg.color} と推定しました`);
+        if (!src || !detected) return;
+        E.removeBg.color = detected;
+        update(); toast(`背景色を ${detected} と推定しました`);
       });
       row(sb, color('消す色', () => E.removeBg.color, v => { E.removeBg.color = v; }, { pick: true, extra: auto }));
       row(sb, field('範囲', sel([['edge', '外周からつながった部分だけ'], ['all', '画像全体の同じ色']], () => E.removeBg.mode, v => { E.removeBg.mode = v; })));
@@ -624,8 +649,8 @@ function renderEditor() {
       const prev = section; section = `背景:帯${i + 1}`;
       const box = document.createElement('div'); box.className = 'band';
       const head = document.createElement('div'); head.className = 'band-head';
-      const title = document.createElement('span'); title.textContent = showWeight ? `帯 ${i + 1}` : '色';
-      head.appendChild(title);
+      const title = document.createElement('span'); title.textContent = `帯 ${i + 1}`;
+      if (showWeight) head.appendChild(title);
       if (showWeight) {
         const acts = document.createElement('span'); acts.className = 'band-actions';
         const mk = (label, aria, fn, disabled) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small'; b.textContent = label; b.setAttribute('aria-label', aria); b.disabled = !!disabled; b.dataset.key = keyFor(aria); b.addEventListener('click', fn); return b; };
@@ -636,7 +661,7 @@ function renderEditor() {
         );
         head.appendChild(acts);
       }
-      box.appendChild(head);
+      if (showWeight) box.appendChild(head);
       const r1 = row(box, color('色', () => band.color, v => { band.color = v; syncBg(); }));
       if (showWeight) r1.prepend(field('幅 %', num(() => band.weight, v => { band.weight = v; }, 1, 0)));
       box.appendChild(check('グラデーション', () => band.grad, v => { band.grad = v; }));

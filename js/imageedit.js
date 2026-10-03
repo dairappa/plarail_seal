@@ -55,13 +55,19 @@ function dist(d, o, c) {
   return Math.sqrt(dr * dr + dg * dg + db * db) / MAXD * 100;
 }
 
-/** 外周の画素で最も多い色（背景色の推定）。透明な画素は数えない */
+/**
+ * 外周の画素で最も多い色（背景色の推定）。
+ * 外周の半分以上が透明なら「背景はすでに透明」とみなして null を返す
+ * （このとき外周の不透明な画素はロゴのはみ出しなので、背景色ではない）。
+ */
 export function detectBorderColor(img) {
   const { width: w, height: h, data } = img;
   const counts = new Map();
+  let total = 0, transparent = 0;
   const add = (x, y) => {
     const o = (y * w + x) * 4;
-    if (data[o + 3] < 128) return;
+    total++;
+    if (data[o + 3] < 128) { transparent++; return; }
     const k = ((data[o] >> 3) << 10) | ((data[o + 1] >> 3) << 5) | (data[o + 2] >> 3);  // 5bit 量子化
     const c = counts.get(k) || { n: 0, r: 0, g: 0, b: 0 };
     c.n++; c.r += data[o]; c.g += data[o + 1]; c.b += data[o + 2];
@@ -69,9 +75,10 @@ export function detectBorderColor(img) {
   };
   for (let x = 0; x < w; x++) { add(x, 0); add(x, h - 1); }
   for (let y = 1; y < h - 1; y++) { add(0, y); add(w - 1, y); }
+  if (transparent * 2 >= total) return null;
   let best = null;
   for (const c of counts.values()) if (!best || c.n > best.n) best = c;
-  if (!best) return '#ffffff';
+  if (!best) return null;
   return rgbToHex(best.r / best.n, best.g / best.n, best.b / best.n);
 }
 
@@ -159,6 +166,13 @@ export function monochrome(img, color) {
     if (data[o + 3] === 0) continue;
     data[o] = c[0]; data[o + 1] = c[1]; data[o + 2] = c[2];
   }
+}
+
+/** 不透明な画素の割合（0〜1） */
+export function opaqueRatio(img, threshold = 8) {
+  const d = img.data; let n = 0;
+  for (let o = 3; o < d.length; o += 4) if (d[o] > threshold) n++;
+  return n / (img.width * img.height);
 }
 
 /** 不透明部分の外接矩形。すべて透明なら null */
