@@ -11,8 +11,9 @@ permissions:
   pages: write
   id-token: write
 
+# ブランチごとにまとめる（別ブランチへの push が、既定ブランチのデプロイを打ち切らないように）
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
