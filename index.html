@@ -189,7 +189,7 @@
     <h3>色が思ったとおりに出ないとき</h3>
     <ol>
       <li>「用紙と印刷方法」の「色見本から補正を作る」を開き、色見本シートを保存して、シールと同じ方法で印刷します。</li>
-      <li>印刷した色見本をスキャンするか真上から撮影して取り込み、4 隅のマークを 1 → 4 の順にクリックします。</li>
+      <li>「目で見て合わせる」では、色見本の番号のマスと画面の候補を見比べて、一番近い色を選んでいきます（12 マス）。「写真・スキャンで読み取る」では、取り込んだ画像の 4 隅のマークを 1 → 4 の順にクリックします。</li>
       <li>「この補正を使う」を押すと、以後の書き出しに色補正がかかります。強さは後から変えられます。</li>
     </ol>
     <h3>家庭用プリンタ / A4 シール台紙で印刷する</h3>
@@ -210,7 +210,7 @@
 <dialog id="color-dialog" class="wide" aria-labelledby="cc-title">
   <article>
     <h2 id="cc-title">色見本から色補正を作る</h2>
-    <p class="note">コンビニのシール紙は、画面より色が濃く・くすんで出がちです。実際に印刷した色見本を読み取り、その差を打ち消すように書き出しの色を調整します。</p>
+    <p class="note">コンビニのシール紙は、画面より色が濃く・くすんで出がちです。実際に印刷した色見本と画面の色の差を調べ、それを打ち消すように書き出しの色を調整します。</p>
 
     <section class="cc-step">
       <h3>1. 色見本を印刷する</h3>
@@ -219,29 +219,65 @@
     </section>
 
     <section class="cc-step">
-      <h3>2. 印刷した色見本を取り込む</h3>
-      <p class="note">スキャンが一番安定します（マルチコピー機のスキャンも使えます）。写真なら明るい場所で真上から撮り、影や照明の映り込みを避けてください。フラッシュは使わないでください。</p>
-      <div class="field">
-        <label for="cc-photo">写真またはスキャン画像</label>
-        <input type="file" id="cc-photo" accept="image/*">
+      <h3>2. 色の読み取り方を選ぶ</h3>
+      <div class="seg" role="group" aria-label="色の読み取り方">
+        <button id="cc-mode-visual" class="seg-btn" aria-pressed="true">目で見て合わせる</button>
+        <button id="cc-mode-photo" class="seg-btn" aria-pressed="false">写真・スキャンで読み取る</button>
       </div>
     </section>
 
-    <section class="cc-step" id="cc-step3" hidden>
-      <h3>3. 4 隅のマークを指定する</h3>
-      <p id="cc-instr" class="warn" role="status" aria-live="polite"></p>
-      <div class="cc-canvas-wrap"><canvas id="cc-canvas" tabindex="0" role="img"></canvas></div>
-      <div class="row cc-actions">
-        <button id="btn-cc-reset" class="btn small">指定をやり直す</button>
-      </div>
-      <p class="note">クリックすると、近くのマークの中心に自動で合わせます。キーボードでは 1〜4 で点を選び、矢印キーで動かします（Shift で大きく、Enter でマークに合わせる）。</p>
-    </section>
+    <div id="cc-visual">
+      <section class="cc-step">
+        <h3>3. 印刷と画面を見比べて、近い色を選ぶ</h3>
+        <p class="note">明るい部屋で、印刷した色見本を画面のすぐ横に並べてください。画面の明るさは固定し、ナイトモードや色温度の自動調整（True Tone など）は切っておきます。シールのデザインと同じ画面で合わせると、その画面で見た色に近づきます。</p>
+        <p id="cc-v-progress" class="cc-v-progress" role="status" aria-live="polite"></p>
+        <div class="cc-v-layout">
+          <div class="cc-v-main">
+            <div class="cc-v-cols" aria-hidden="true"><span></span><span id="cc-v-col0"></span><span id="cc-v-col1"></span><span id="cc-v-col2"></span></div>
+            <div class="cc-v-body">
+              <div class="cc-v-rows" aria-hidden="true"><span>明るい</span><span>そのまま</span><span>暗い</span></div>
+              <div id="cc-v-grid" class="cc-v-grid" role="group" aria-label="候補の色"></div>
+            </div>
+          </div>
+          <figure class="cc-v-map">
+            <div id="cc-v-map" class="cc-v-mapgrid" role="img"></div>
+            <figcaption>色見本での位置</figcaption>
+          </figure>
+        </div>
+        <div class="row cc-actions">
+          <button id="btn-cc-v-accept" class="btn small">このマスはこれで決定</button>
+          <button id="btn-cc-v-back" class="btn small">前のマスに戻る</button>
+          <button id="btn-cc-v-skip" class="btn small">このマスを飛ばす</button>
+          <button id="btn-cc-v-restart" class="btn small danger">最初からやり直す</button>
+        </div>
+        <p class="note">印刷に一番近いマスを押すと、その色を中心にした候補に変わります。真ん中を押すと、より細かい候補に進みます。矢印キーで候補を移動し、Enter で選べます。</p>
+      </section>
+    </div>
+
+    <div id="cc-photo-mode" hidden>
+      <section class="cc-step">
+        <h3>3. 写真を取り込み、4 隅のマークを指定する</h3>
+        <p class="note">スキャンが一番安定します（マルチコピー機のスキャンも使えます）。写真なら明るい場所で真上から撮り、影や照明の映り込みを避けてください。フラッシュは使わないでください。</p>
+        <div class="field">
+          <label for="cc-photo">写真またはスキャン画像</label>
+          <input type="file" id="cc-photo" accept="image/*">
+        </div>
+        <div id="cc-step3" hidden>
+          <p id="cc-instr" class="warn" role="status" aria-live="polite"></p>
+          <div class="cc-canvas-wrap"><canvas id="cc-canvas" tabindex="0" role="img"></canvas></div>
+          <div class="row cc-actions">
+            <button id="btn-cc-reset" class="btn small">指定をやり直す</button>
+          </div>
+          <p class="note">クリックすると、近くのマークの中心に自動で合わせます。キーボードでは 1〜4 で点を選び、矢印キーで動かします（Shift で大きく、Enter でマークに合わせる）。</p>
+        </div>
+      </section>
+    </div>
 
     <section class="cc-step" id="cc-step4" hidden>
       <h3>4. 結果を確かめる</h3>
       <p id="cc-result" role="status" aria-live="polite"></p>
       <div id="cc-swatches" class="cc-swatches" role="img"></div>
-      <p class="note">各マスの上半分が意図した色、下半分が印刷された色です。</p>
+      <p class="note" id="cc-swatch-note">各マスの上半分が意図した色、下半分が印刷された色です。</p>
       <button id="btn-cc-use" class="btn primary">この補正を使う</button>
     </section>
 

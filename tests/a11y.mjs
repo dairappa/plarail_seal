@@ -216,6 +216,53 @@ c('補正がないうちは「色補正をかける」は押せず、作り方�
 await page.focus('#btn-cc-setup');
 await page.keyboard.press('Enter');
 c('「色見本から補正を作る」でダイアログが開く', await page.evaluate(() => document.getElementById('color-dialog').open));
+
+// --- 目で合わせる（既定）: 合成プリンタの印刷を「見た目どおりに一番近い候補を選ぶ人」を模す
+let vs = await page.evaluate(() => ({ visual: !document.getElementById('cc-visual').hidden, photo: !document.getElementById('cc-photo-mode').hidden,
+  pressed: document.getElementById('cc-mode-visual').getAttribute('aria-pressed'), n: document.querySelectorAll('#cc-v-grid button').length,
+  prog: document.getElementById('cc-v-progress').textContent }));
+c('既定は「目で見て合わせる」で、3×3 の候補と何番のマスかが表示される', vs.visual && !vs.photo && vs.pressed === 'true' && vs.n === 9 && /印刷の \d+ 番/.test(vs.prog), JSON.stringify(vs));
+const vNames = await page.evaluate(() => [...document.querySelectorAll('#cc-v-grid button')].map(b => b.getAttribute('aria-label')));
+c('候補のボタンにはそれぞれ名前（明るい・鮮やか 等）がある', vNames.every(Boolean) && new Set(vNames).size === 9, vNames.join(' / '));
+const vStops = await page.evaluate(() => [...document.querySelectorAll('#cc-v-grid button')].filter(b => b.tabIndex === 0).length);
+c('候補は Tab 停止 1 つ（矢印キーで移動）', vStops === 1);
+// キーボードで候補を移動して選ぶ
+await page.locator('#cc-v-grid button[tabindex="0"]').focus();
+await page.keyboard.press('ArrowUp');
+let fl = await page.evaluate(() => document.activeElement.getAttribute('aria-label'));
+c('↑ で上（明るい）の候補に移る', /明るい/.test(fl), fl);
+await page.keyboard.press('ArrowDown');
+await page.keyboard.press('Enter');     // 真ん中 = いまの色が一番近い → 細かい段階へ
+vs = await page.evaluate(() => ({ prog: document.getElementById('cc-v-progress').textContent, focus: document.activeElement.getAttribute('aria-label') }));
+c('真ん中を Enter で選ぶと細かい段階に進み、フォーカスは真ん中に残る', /細かさ 2 \/ 3/.test(vs.prog) && /真ん中/.test(vs.focus), JSON.stringify(vs));
+await page.click('#btn-cc-v-restart');
+// 12 マスを人の代わりに選ぶ（一番近い候補。差がわずかなら真ん中）
+const vres = await page.evaluate(async () => {
+  const cal = await import('./js/colorcal.js');
+  const w = window.__sim.printer([255, 255, 255]);
+  const seen = rgb => window.__sim.printer(rgb).map((v, i) => Math.min(255, v * 255 / w[i]));
+  const ui = window.__app.colorUI; let clicks = 0;
+  while (!ui.state.v.finished && clicks < 400) {
+    const st = ui.state.v.st, g = cal.visualGrid(st), goal = seen(st.target);
+    let best = 4, bd = cal.deltaE(g[4], goal);
+    g.forEach((c, k) => { const d = cal.deltaE(c, goal); if (d < bd - 0.3) { bd = d; best = k; } });
+    document.querySelectorAll('#cc-v-grid button')[best].click(); clicks++;
+  }
+  return { clicks, finished: ui.state.v.finished, res: document.getElementById('cc-result').textContent, use: !document.getElementById('btn-cc-use').hidden,
+    sw: document.querySelectorAll('#cc-swatches span').length, focus: document.activeElement.id };
+});
+const vm = vres.res.match(/ΔE）は\s*([\d.]+)、補正後の推定は\s*([\d.]+)/);
+c('12 マスを選び終えると結果が出て、補正でずれが縮む', vres.finished && vm && Number(vm[2]) < Number(vm[1]) * 0.6 && vres.use && vres.sw === 12, `${vres.clicks} 回の選択、${vres.res}`);
+c('選び終えると「この補正を使う」にフォーカスが移る', vres.focus === 'btn-cc-use', vres.focus);
+await page.click('#btn-cc-v-back');
+vs = await page.evaluate(() => ({ prog: document.getElementById('cc-v-progress').textContent, use: document.getElementById('cc-step4').hidden }));
+c('「前のマスに戻る」で最後のマスを選び直せる（結果は一度消える）', /12 \/ 12 マス目/.test(vs.prog) && vs.use, JSON.stringify(vs));
+await page.click('#btn-cc-v-accept');
+
+// --- 写真・スキャンで読み取る
+await page.click('#cc-mode-photo');
+vs = await page.evaluate(() => ({ visual: !document.getElementById('cc-visual').hidden, photo: !document.getElementById('cc-photo-mode').hidden, step4: document.getElementById('cc-step4').hidden }));
+c('「写真・スキャンで読み取る」に切り替えると写真の手順だけが出る（目で合わせた結果は混ざらない）', !vs.visual && vs.photo && vs.step4, JSON.stringify(vs));
 await page.setInputFiles('#cc-photo', { name: 'chart.png', mimeType: 'image/png', buffer: Buffer.from(shot.b64, 'base64') });
 await page.waitForFunction(() => !document.getElementById('cc-step3').hidden);
 c('写真を取り込むとマーク指定の画面に進み、画像にフォーカスが移る', (await focused()) === '#cc-canvas');

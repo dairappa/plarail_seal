@@ -3,7 +3,9 @@
 //
 //   1. 色見本: 4 隅のマークと 6×8 = 48 色のパッチ。配置はマーク中心を (0,0)〜(1,1) とする
 //      単位座標で決めるので、用紙サイズに関係なく同じ手順で読み取れる
-//   2. 読み取り: 写真上でマーク 4 点を指定 → 射影変換で各パッチの中央部を標本化（中央値）
+//   2. 読み取り（2 通り）
+//      写真: 写真上でマーク 4 点を指定 → 射影変換で各パッチの中央部を標本化（中央値）
+//      目で合わせる: 代表 12 マスについて、印刷と見比べて画面上の 3×3 の候補から近い色を選ぶ
 //   3. 補正モデル: 灰色の段階から各チャンネルの階調カーブ（逆関数）を作り、
 //      全パッチで 3×4 のアフィン変換を最小二乗（単位行列寄りに正則化）で当てはめる
 //   4. 適用: 書き出し画像の各画素に「階調カーブ → アフィン変換」をかける。純白（紙の色）はそのまま
@@ -77,6 +79,16 @@ export function renderChart(ctx, project, area, s) {
     ctx.fillStyle = rgbToHex(p.rgb);
     ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
   });
+  // マス番号（左上の角。写真の読み取りは中央部だけを使うので影響しない）。目で合わせるときに使う
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.font = `700 ${1.9 * s}px "Noto Sans JP", sans-serif`;
+  CHART_PATCHES.forEach((p, i) => {
+    const r = patchRect(i);
+    const [x0, y0] = U(r.x, r.y);
+    const [R, G, B] = p.rgb;
+    ctx.fillStyle = 0.299 * R + 0.587 * G + 0.114 * B > 140 ? '#000000' : '#ffffff';
+    ctx.fillText(String(i + 1), x0 + 0.7 * s, y0 + 0.5 * s);
+  });
   // 白いパッチ（紙の色）の位置が分かるよう細い枠
   { const r = patchRect(0); const [x0, y0] = U(r.x, r.y), [x1, y1] = U(r.x + r.w, r.y + r.h);
     ctx.strokeStyle = '#bbbbbb'; ctx.lineWidth = Math.max(1, 0.1 * s); ctx.strokeRect(x0, y0, x1 - x0, y1 - y0); }
@@ -99,7 +111,7 @@ export function renderChart(ctx, project, area, s) {
   ctx.fillText('↑ 上　色見本（プラレール シールメーカー）', tx, ty);
   const [bx, by] = U(0.5, 1);
   ctx.font = `400 ${1.9 * s}px "Noto Sans JP", sans-serif`;
-  ctx.fillText('印刷したら写真かスキャンをアプリに取り込み、1→4 のマークを指定', bx, by);
+  ctx.fillText('印刷したら、アプリで画面と見比べるか、写真かスキャンを取り込む', bx, by);
   ctx.restore();
 }
 
@@ -222,7 +234,7 @@ export function samplePatches(img, pts) {
 
 // ---------------------------------------------------------------- 色差
 
-function srgbToLab([r, g, b]) {
+export function srgbToLab([r, g, b]) {
   const lin = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
   const R = lin(r), G = lin(g), B = lin(b);
   const X = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047;
@@ -232,10 +244,108 @@ function srgbToLab([r, g, b]) {
   const fx = f(X), fy = f(Y), fz = f(Z);
   return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }
+/** Lab → sRGB（範囲外は切り詰め） */
+export function labToSrgb([L, a, b]) {
+  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - b / 200;
+  const inv = t => t ** 3 > 0.008856 ? t ** 3 : (t - 16 / 116) / 7.787;
+  const X = inv(fx) * 0.95047, Y = inv(fy), Z = inv(fz) * 1.08883;
+  const R = 3.2406 * X - 1.5372 * Y - 0.4986 * Z;
+  const G = -0.9689 * X + 1.8758 * Y + 0.0415 * Z;
+  const B = 0.0557 * X - 0.2040 * Y + 1.0570 * Z;
+  const g = v => { v = Math.max(0, Math.min(1, v)); return 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055); };
+  return [g(R), g(G), g(B)].map(v => Math.round(v));
+}
+
 /** CIE76 の色差 ΔE */
 export function deltaE(a, b) {
   const p = srgbToLab(a), q = srgbToLab(b);
   return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+}
+
+// ---------------------------------------------------------------- 目で合わせる
+
+const idxOf = rgb => CHART_PATCHES.findIndex(p => p.rgb.every((v, k) => v === rgb[k]));
+/** 目で合わせる 12 マス（色見本のマス番号 = 添字 + 1）。灰色 4 段階で明るさのカーブ、残りで色のずれを見る */
+export const VISUAL_PATCHES = [
+  [209, 209, 209], [139, 139, 139], [93, 93, 93], [46, 46, 46],
+  [255, 0, 0], [0, 255, 0], [0, 0, 255], [0, 255, 255], [255, 0, 255], [255, 255, 0],
+  hexToRgb('#ff9a00'), hexToRgb('#1d3f8f'),
+].map(idxOf);
+
+/**
+ * 候補を出す段階。各段階で中央（いま一番近い色）を選ぶと次の段階へ進む。
+ *   rows: 明るさ（上が明るい）、cols: axis の方向へのずれ（Lab の ab 平面での量）
+ *   axis 1: 鮮やかさ（灰色は 青み ↔ 黄み）、axis 2: 色合い（灰色は 緑み ↔ 赤み）
+ */
+export const VISUAL_STAGES = [
+  { dL: 8, axis: 1, d: 14 },
+  { dL: 4, axis: 2, d: 9 },
+  { dL: 3, axis: 1, d: 6 },
+];
+const MAX_ROUNDS = 14;
+
+/** 候補の軸（ab 平面の単位ベクトル）。色ごとに固定 */
+function visualAxes(target) {
+  const [, a, b] = srgbToLab(target);
+  const C = Math.hypot(a, b);
+  if (C > 12) return { u1: [a / C, b / C], u2: [-b / C, a / C], chromatic: true };
+  return { u1: [0, 1], u2: [1, 0], chromatic: false };
+}
+
+/** 列と行の説明（読み上げ・見出し用） */
+export function visualAxisLabels(target, stage) {
+  const { chromatic } = visualAxes(target);
+  const ax = VISUAL_STAGES[stage].axis;
+  const cols = ax === 1 ? (chromatic ? ['くすんだ', 'そのまま', '鮮やか'] : ['青み', 'そのまま', '黄み'])
+    : (chromatic ? ['色合い −', 'そのまま', '色合い ＋'] : ['緑み', 'そのまま', '赤み']);
+  return { rows: ['明るい', 'そのまま', '暗い'], cols };
+}
+
+export function visualStart(index) {
+  const target = CHART_PATCHES[index].rgb;
+  return { index, target, center: target.slice(), stage: 0, rounds: 0, done: false };
+}
+
+/** いまの段階の 3×3 の候補（行優先、4 番が中央） */
+export function visualGrid(st) {
+  const { u1, u2 } = visualAxes(st.target);
+  const S = VISUAL_STAGES[st.stage];
+  const u = S.axis === 1 ? u1 : u2;
+  const [L, a, b] = srgbToLab(st.center);
+  const out = [];
+  for (const r of [1, 0, -1]) for (const c of [-1, 0, 1]) {
+    out.push(r === 0 && c === 0 ? st.center.slice() : labToSrgb([L + r * S.dL, a + c * S.d * u[0], b + c * S.d * u[1]]));
+  }
+  return out;
+}
+
+/** k 番の候補を選ぶ。中央なら次の段階へ（最後の段階なら決定）、それ以外はその色を中心にやり直す */
+export function visualPick(st, k) {
+  const grid = visualGrid(st);
+  const next = { ...st, center: grid[k], rounds: st.rounds + 1 };
+  if (k === 4) {
+    if (st.stage + 1 >= VISUAL_STAGES.length) next.done = true;
+    else next.stage = st.stage + 1;
+  }
+  if (next.rounds >= MAX_ROUNDS) next.done = true;
+  return next;
+}
+
+/**
+ * 目で合わせた結果を fitProfile 用の標本にする。
+ * 紙の白は画面の白、印刷の黒は画面の黒とみなす（合わせにくい両端は測らない）
+ * @param picks { [色見本の添字]: 選んだ RGB }
+ */
+export function visualSamples(picks) {
+  const out = [
+    { target: [255, 255, 255], kind: 'gray', raw: [255, 255, 255] },
+    { target: [0, 0, 0], kind: 'gray', raw: [0, 0, 0] },
+  ];
+  for (const [i, rgb] of Object.entries(picks)) {
+    const p = CHART_PATCHES[Number(i)];
+    out.push({ target: p.rgb, kind: p.kind, raw: rgb.slice() });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- 補正モデル
@@ -269,15 +379,28 @@ function inverseCurve(pairs) {
     }
   }
   for (let i = 1; i < p.length; i++) if (p[i].m <= p[i - 1].m) p[i].m = p[i - 1].m + 0.01;
+  // 単調な 3 次補間（Fritsch–Carlson）。点が少ない「目で合わせる」でも滑らかなカーブになる
+  const n = p.length, X = p.map(q => q.m), Y = p.map(q => q.c);
+  const dk = [];
+  for (let i = 0; i < n - 1; i++) dk.push((Y[i + 1] - Y[i]) / (X[i + 1] - X[i]));
+  const t = new Array(n);
+  t[0] = dk[0]; t[n - 1] = dk[n - 2];
+  for (let i = 1; i < n - 1; i++) t[i] = dk[i - 1] * dk[i] <= 0 ? 0 : (dk[i - 1] + dk[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (dk[i] === 0) { t[i] = t[i + 1] = 0; continue; }
+    const a = t[i] / dk[i], b = t[i + 1] / dk[i], h = a * a + b * b;
+    if (h > 9) { const k = 3 / Math.sqrt(h); t[i] = k * a * dk[i]; t[i + 1] = k * b * dk[i]; }
+  }
   const lut = new Array(256);
   for (let x = 0; x < 256; x++) {
-    if (x <= p[0].m) { lut[x] = p[0].c; continue; }
-    if (x >= p[p.length - 1].m) { lut[x] = p[p.length - 1].c; continue; }
-    let j = 1; while (p[j].m < x) j++;
-    const t = (x - p[j - 1].m) / (p[j].m - p[j - 1].m);
-    lut[x] = p[j - 1].c + t * (p[j].c - p[j - 1].c);
+    if (x <= X[0]) { lut[x] = Y[0]; continue; }
+    if (x >= X[n - 1]) { lut[x] = Y[n - 1]; continue; }
+    let j = 1; while (X[j] < x) j++;
+    const h = X[j] - X[j - 1], u = (x - X[j - 1]) / h;
+    const h00 = 2 * u ** 3 - 3 * u ** 2 + 1, h10 = u ** 3 - 2 * u ** 2 + u, h01 = -2 * u ** 3 + 3 * u ** 2, h11 = u ** 3 - u ** 2;
+    lut[x] = h00 * Y[j - 1] + h10 * h * t[j - 1] + h01 * Y[j] + h11 * h * t[j];
   }
-  return lut.map(v => Math.round(v * 10) / 10);
+  return lut.map(v => Math.round(Math.max(0, Math.min(255, v)) * 10) / 10);
 }
 
 /** 4×4 の連立一次方程式（ガウスの消去法） */
@@ -300,10 +423,13 @@ function solve4(M, y) {
  * 写真から読み取ったパッチ（samplePatches の結果）から補正プロファイルを作る
  * @returns {{curves:number[][], A:number[][], before:number, after:number, samples:object[]}}
  */
-export function fitProfile(samples) {
+export function fitProfile(samples, opts = {}) {
+  const visual = opts.method === 'visual';
   const norm = normalizeSamples(samples);
   if (norm.some(s => s.meas.some(v => !Number.isFinite(v)))) throw new Error('写真の外にはみ出したパッチがあります。色見本全体が写るように撮ってください');
-  if (!grayRampOk(norm)) throw new Error('灰色の段階が正しく読み取れませんでした。1 左上 → 2 右上 → 3 右下 → 4 左下 の順にマークを指定したか確認してください');
+  if (!grayRampOk(norm)) throw new Error(visual
+    ? '灰色のマスで選んだ色が、明るい順に並んでいません。灰色のマスを選び直してください'
+    : '灰色の段階が正しく読み取れませんでした。1 左上 → 2 右上 → 3 右下 → 4 左下 の順にマークを指定したか確認してください');
 
   // 1. 階調カーブ（チャンネルごと）: 灰色パッチで「印刷された値 → 入力値」
   const grays = norm.filter(s => s.kind === 'gray');
@@ -311,7 +437,8 @@ export function fitProfile(samples) {
   const lin = m => m.map((v, k) => curves[k][Math.max(0, Math.min(255, Math.round(v)))]);
 
   // 2. アフィン変換: lin(測定値) → 入力値 を最小二乗。単位行列寄りに正則化し、白は強く固定する
-  const lambda = 2;
+  // 正則化の強さ。写真（48 マス）は 2。目で合わせる（12 マス）は標本が少ないぶん弱める
+  const lambda = opts.lambda ?? (visual ? 0.15 : 2);
   const A = [0, 1, 2].map(k => {
     const M = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
     const y = [0, 0, 0, 0];

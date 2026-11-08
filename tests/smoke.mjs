@@ -189,6 +189,30 @@ const cc = await page.evaluate(async () => {
   app.project = JSON.parse(saved);
   return { snapErr, before, after, fitBefore: prof.before, fitAfter: prof.after, white, corr, raw, paperCorner };
 });
+// 目で合わせる: 12 マスについて、印刷の見た目に一番近い候補を選び続けた場合
+const vis = await page.evaluate(async () => {
+  const cal = await import('./js/colorcal.js');
+  const w = window.__sim.printer([255, 255, 255]);
+  const seen = rgb => window.__sim.printer(rgb).map((v, i) => Math.min(255, v * 255 / w[i]));
+  const picks = {}; let clicks = 0;
+  for (const idx of cal.VISUAL_PATCHES) {
+    let st = cal.visualStart(idx); const goal = seen(st.target);
+    while (!st.done) {
+      const g = cal.visualGrid(st); let best = 4, bd = cal.deltaE(g[4], goal);
+      g.forEach((c, k) => { const d = cal.deltaE(c, goal); if (d < bd - 0.3) { bd = d; best = k; } });
+      st = cal.visualPick(st, best); clicks++;
+    }
+    picks[idx] = st.center;
+  }
+  const prof = cal.fitProfile(cal.visualSamples(picks), { method: 'visual' });
+  const test = [[200, 60, 40], [40, 120, 200], [90, 160, 70], [128, 128, 128], [230, 200, 120], [60, 60, 90], [255, 154, 0], [47, 79, 208]];
+  const before = test.reduce((a, c) => a + cal.deltaE(c, seen(c)), 0) / test.length;
+  const after = test.reduce((a, c) => a + cal.deltaE(c, seen(cal.correctColor(prof, c, 1))), 0) / test.length;
+  const nums = cal.VISUAL_PATCHES.map(i => i + 1);
+  return { clicks, before, after, nums };
+});
+c('目で合わせる: 12 マスを選ぶだけで印刷のずれが半分以下になる', vis.after < vis.before * 0.5, `${vis.before.toFixed(1)} → ${vis.after.toFixed(1)}、選択 ${vis.clicks} 回、マス ${vis.nums.join(',')}`);
+
 c('色見本: マークのクリックが少しずれても中心に合わせる', cc.snapErr < 2.5, `ずれ ${cc.snapErr.toFixed(2)} px`);
 c('色補正: 印刷のずれが大きく縮む（平均 ΔE）', cc.after < cc.before * 0.4, `${cc.before.toFixed(1)} → ${cc.after.toFixed(1)}（読み取り時の推定 ${cc.fitBefore} → ${cc.fitAfter}）`);
 c('色補正: 純白（紙の色）は変えない', cc.white.every(v => v >= 254.5), JSON.stringify(cc.white));
