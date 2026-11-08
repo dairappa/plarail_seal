@@ -41,14 +41,16 @@ export function layoutSheet(project) {
 
   for (const item of project.items) {
     const copies = Math.max(0, Math.floor(item.copies ?? 1));
+    const pair = item.type === 'lamp' && item.pair === 'mirror';
+    const count = pair ? copies * 2 : copies;
     const cw = item.w + 2 * pad, ch = item.h + 2 * pad;
-    for (let i = 0; i < copies; i++) {
+    for (let i = 0; i < count; i++) {
       if (cw > area.w || ch > bottom - area.y) { overflow++; continue; }
       if (cx + cw > area.x + area.w + 1e-6) {          // 折り返し
         cx = area.x; cy += rowH + gap; rowH = 0;
       }
       if (cy + ch > bottom + 1e-6) { overflow++; continue; }
-      placed.push({ item, x: cx + pad, y: cy + pad, w: item.w, h: item.h });
+      placed.push({ item, x: cx + pad, y: cy + pad, w: item.w, h: item.h, mirror: pair && i % 2 === 1 });
       cx += cw + gap;
       rowH = Math.max(rowH, ch);
     }

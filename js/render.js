@@ -75,7 +75,16 @@ export function renderSheet(ctx, project, s, opts = {}) {
   if (lay.ruler) drawRuler(ctx, lay.ruler, s);
 
   for (const p of lay.placed) {
-    drawItem(ctx, p.item, p.x, p.y, s, project);
+    if (p.mirror) {
+      // 左右ペアの 2 枚目: シールの中心で左右反転して描く
+      ctx.save();
+      const cx = (p.x + p.w / 2) * s;
+      ctx.translate(cx, 0); ctx.scale(-1, 1); ctx.translate(-cx, 0);
+      drawItem(ctx, p.item, p.x, p.y, s, project);
+      ctx.restore();
+    } else {
+      drawItem(ctx, p.item, p.x, p.y, s, project);
+    }
     drawMarks(ctx, p, s, project);
   }
 
@@ -162,6 +171,8 @@ export function drawItem(ctx, item, x, y, s, project) {
     drawTextItem(ctx, item, x, y, s);
   } else if (item.type === 'image') {
     drawImageItem(ctx, item, x, y, s, b);
+  } else if (item.type === 'lamp') {
+    drawLampItem(ctx, item, x, y, s);
   }
   ctx.restore();
 }
@@ -439,6 +450,117 @@ function drawTextItem(ctx, item, x, y, s) {
   lines.forEach((line, i) => {
     fitText(ctx, line, { x: inner.x, y: inner.y + i * lh, w: inner.w, h: lh }, item, item.color || '#000', item.align || 'center');
   });
+}
+
+// ---------------------------------------------------------------- 前照灯・尾灯
+
+function rgbOf(hex) {
+  const n = parseInt(String(hex || '#000000').replace('#', '').padEnd(6, '0'), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+/** a と b を t で混ぜた色（t=0 で a） */
+function mix(a, b, t) {
+  const A = rgbOf(a), B = rgbOf(b);
+  return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`;
+}
+
+/** ランプ 1 つの輪郭を作る（中心 cx,cy、幅 w、高さ h。px） */
+function lampPath(ctx, shape, cx, cy, w, h, radiusPct) {
+  if (shape === 'round') {
+    ctx.beginPath(); ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
+  } else {
+    const r = shape === 'pill' ? Math.min(w, h) / 2 : Math.min(w, h) / 2 * Math.min(100, radiusPct || 0) / 100;
+    roundRect(ctx, cx - w / 2, cy - h / 2, w, h, r);
+  }
+}
+
+/** 中心とランプの大きさ（px）の一覧。並べ方・寄せ方・はみ出しの縮小を処理する */
+export function lampLayout(item, inner) {
+  const n = Math.max(0, item.lamps?.length || 0);
+  if (!n || inner.w <= 0 || inner.h <= 0) return [];
+  const row = item.arrange !== 'column';
+  const aspect = Math.max(0.1, item.lampAspect || 1);
+  const cross = (row ? inner.h : inner.w) * Math.max(1, item.lampSize ?? 70) / 100;
+  let w = row ? cross * aspect : cross, h = row ? cross : cross / aspect;
+  let along = row ? w : h;
+  let gap = along * (item.gap ?? 20) / 100;
+  const room = row ? inner.w : inner.h;
+  const need = n * along + (n - 1) * gap;
+  if (need > room) { const k = room / need; w *= k; h *= k; along *= k; gap *= k; }
+  // 縦横の向きの大きさもケースに収める
+  const crossNow = row ? h : w, crossRoom = row ? inner.h : inner.w;
+  if (crossNow > crossRoom) { const k = crossRoom / crossNow; w *= k; h *= k; along *= k; gap *= k; }
+  const centers = [];
+  for (let i = 0; i < n; i++) {
+    let t;
+    if (item.distribute === 'center') {
+      const total = n * along + (n - 1) * gap;
+      t = (room - total) / 2 + along / 2 + i * (along + gap);
+    } else {
+      t = room * (i + 0.5) / n;   // 等分したマスの中央
+    }
+    centers.push(row ? [inner.x + t, inner.y + inner.h / 2] : [inner.x + inner.w / 2, inner.y + t]);
+  }
+  return centers.map(([cx, cy], i) => ({ cx, cy, w, h, color: item.lamps[i].color }));
+}
+
+function drawLampItem(ctx, item, x, y, s) {
+  const W = item.w * s, H = item.h * s, X = x * s, Y = y * s;
+  const hs = item.housing || {};
+  // ケース
+  let box = { x: X, y: Y, w: W, h: H };
+  if (hs.enabled) {
+    const ins = Math.min(W, H) * (hs.inset || 0) / 100;
+    box = { x: X + ins, y: Y + ins, w: W - 2 * ins, h: H - 2 * ins };
+    const r = Math.min(box.w, box.h) / 2 * Math.min(100, hs.radius || 0) / 100 * 2;
+    roundRect(ctx, box.x, box.y, box.w, box.h, Math.min(r, Math.min(box.w, box.h) / 2));
+    ctx.fillStyle = hs.color || '#111111'; ctx.fill();
+    const bw = Math.min(box.w, box.h) * (hs.border || 0) / 100;
+    if (bw > 0) {
+      ctx.lineWidth = bw; ctx.strokeStyle = hs.borderColor || '#c0c0c0';
+      roundRect(ctx, box.x + bw / 2, box.y + bw / 2, box.w - bw, box.h - bw, Math.max(0, Math.min(r, Math.min(box.w, box.h) / 2) - bw / 2));
+      ctx.stroke();
+      box = { x: box.x + bw, y: box.y + bw, w: box.w - 2 * bw, h: box.h - 2 * bw };
+    }
+  }
+  // ランプを並べる内側
+  const pad = Math.min(box.w, box.h) * (item.padding ?? 12) / 100;
+  const inner = { x: box.x + pad, y: box.y + pad, w: box.w - 2 * pad, h: box.h - 2 * pad };
+  for (const L of lampLayout(item, inner)) {
+    const shape = item.lampShape || 'round';
+    // 縁
+    const ringW = Math.min(L.w, L.h) * (item.ring || 0) / 100;
+    if (ringW > 0) {
+      lampPath(ctx, shape, L.cx, L.cy, L.w, L.h, item.lampRadius);
+      ctx.fillStyle = item.ringColor || '#c0c0c0'; ctx.fill();
+    }
+    const w = L.w - 2 * ringW, h = L.h - 2 * ringW;
+    if (w <= 0 || h <= 0) continue;
+    lampPath(ctx, shape, L.cx, L.cy, w, h, item.lampRadius);
+    const style = item.lampStyle || 'glow';
+    if (style === 'glow') {
+      // 中心が白く飛んで、縁に向かって色が濃くなる
+      const R = Math.max(w, h) / 2;
+      const g = ctx.createRadialGradient(L.cx, L.cy, 0, L.cx, L.cy, R);
+      g.addColorStop(0, mix(L.color, '#ffffff', 0.75));
+      g.addColorStop(0.55, L.color);
+      g.addColorStop(1, mix(L.color, '#000000', 0.18));
+      ctx.fillStyle = g;
+    } else {
+      ctx.fillStyle = L.color;
+    }
+    ctx.fill();
+    if (style === 'lens') {
+      // レンズの映り込み（左上の小さなハイライト）
+      ctx.save();
+      lampPath(ctx, shape, L.cx, L.cy, w, h, item.lampRadius); ctx.clip();
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.beginPath(); ctx.ellipse(L.cx - w * 0.18, L.cy - h * 0.2, w * 0.16, h * 0.11, -0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = mix(L.color, '#000000', 0.3); ctx.lineWidth = Math.max(0.5, Math.min(w, h) * 0.06);
+      lampPath(ctx, shape, L.cx, L.cy, w, h, item.lampRadius); ctx.stroke();
+      ctx.restore();
+    }
+  }
 }
 
 function drawImageItem(ctx, item, x, y, s, bleed) {

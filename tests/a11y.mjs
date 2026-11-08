@@ -198,6 +198,36 @@ await page.waitForTimeout(100);
 const pressedAfter = await page.getAttribute(`[data-key="${pickKey}"]`, 'aria-pressed');
 c('スポイトは Enter で有効、Esc で解除され、フォーカスがボタンに戻る', pressed === 'true' && pressedAfter === 'false' && (await focused()) === pickKey, `${pressed} → ${pressedAfter} focus=${await focused()}`);
 
+// ---------------------------------------------------------------- 8b. 前照灯・尾灯の編集
+await page.selectOption('#add-type', 'lamp');
+await page.click('#btn-add');
+await page.waitForTimeout(100);
+const lampId = await page.evaluate(() => window.__app.project.items.at(-1).id);
+const unnamedLamp = await page.evaluate(() => {
+  const nameOf = el => el.getAttribute('aria-label') || (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.textContent.trim()) || el.closest('label')?.textContent.trim() || (el.textContent || '').trim();
+  return [...document.querySelectorAll('#editor input, #editor select, #editor button')].filter(el => el.getClientRects().length > 0 && !nameOf(el)).map(el => el.dataset.key || el.tagName);
+});
+c('前照灯の編集欄の操作要素にアクセシブルネームがある', unnamedLamp.length === 0, unnamedLamp.join(', '));
+const pairKey = `${lampId}:左右:左右`;
+await page.focus(`[data-key="${pairKey}"]`);
+await page.selectOption(`[data-key="${pairKey}"]`, 'mirror');
+await page.waitForTimeout(100);
+let lampSt = await page.evaluate(id => ({ focus: document.activeElement.dataset.key, label: document.querySelector(`[data-key="${id}::組数"]`) ? '組数' : '枚数',
+  meta: [...document.querySelectorAll('#item-list li')].at(-1).querySelector('.meta').textContent }), lampId);
+c('左右ペアにすると「枚数」が「組数」になり、一覧にも「組」と出て、フォーカスは残る', lampSt.focus === pairKey && lampSt.label === '組数' && /組/.test(lampSt.meta), JSON.stringify(lampSt));
+await page.click(`[data-key="${lampId}:ランプ:追加"]`);
+await page.waitForTimeout(100);
+lampSt = await page.evaluate(id => ({ n: window.__app.project.items.find(i => i.id === id).lamps.length, focus: document.activeElement.dataset.key }), lampId);
+c('「ランプを追加」で 3 灯になり、追加したランプの色欄にフォーカスが移る', lampSt.n === 3 && lampSt.focus === `${lampId}:ランプ:3:色`, JSON.stringify(lampSt));
+await page.click(`[data-key="${lampId}:ランプ:まとめて:尾灯"]`);
+await page.waitForTimeout(100);
+lampSt = await page.evaluate(id => window.__app.project.items.find(i => i.id === id).lamps.map(l => l.color), lampId);
+c('「色をまとめて: 尾灯」で全ランプが尾灯の色になる', lampSt.every(v => v === '#e4261c'), lampSt.join(','));
+await page.click(`[data-key="${lampId}:ランプ:1:ランプ 1 を削除"]`);
+await page.waitForTimeout(100);
+lampSt = await page.evaluate(id => ({ n: window.__app.project.items.find(i => i.id === id).lamps.length, focus: document.activeElement.dataset.key }), lampId);
+c('ランプを削除すると「ランプを追加」にフォーカスが移る', lampSt.n === 2 && lampSt.focus === `${lampId}:ランプ:追加`, JSON.stringify(lampSt));
+
 // ---------------------------------------------------------------- 9. 色補正ダイアログ
 await page.addScriptTag({ content: SIM_SRC });
 const shot = await page.evaluate(async () => {

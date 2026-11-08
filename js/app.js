@@ -1,5 +1,5 @@
 // UI とアプリ状態
-import { PAPERS, FONTS, LED_SWATCHES, PRESETS, defaultProject, makeItem, itemLabel, paperById, defaultScaleK, scaleKFor, calibKey, usableArea, signIsBlank, fillOf, makeBand } from './model.js';
+import { PAPERS, FONTS, LED_SWATCHES, PRESETS, defaultProject, makeItem, itemLabel, paperById, defaultScaleK, scaleKFor, calibKey, usableArea, signIsBlank, fillOf, makeBand, makeLamp, LAMP_COLORS, sheetCount } from './model.js';
 import { layoutSheet, rulerLength } from './layout.js';
 import { renderSheet, renderItemThumb, fontsInUse, setImageLoadedCallback, getImage, getEditedImage } from './render.js';
 import { normalizeEdits, makeRecolor, detectBorderColor, colorAt, downscaleDataURL, hasEdits, opaqueRatio } from './imageedit.js';
@@ -303,8 +303,9 @@ function renderList() {
     renderItemThumb(sw, it, 56 / it.w * 2);
     const name = document.createElement('span'); name.className = 'name'; name.textContent = itemLabel(it);
     if (signIsBlank(it)) { name.textContent += '（無地）'; name.title = '表示するパーツがありません。背景色だけで印刷されます'; }
-    const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = `${it.w}×${it.h} mm ×${it.copies}`;
-    li.setAttribute('aria-label', `${name.textContent}、${it.w}×${it.h} mm、${it.copies} 枚`);
+    const meta = document.createElement('span'); meta.className = 'meta';
+    meta.textContent = it.type === 'lamp' && it.pair === 'mirror' ? `${it.w}×${it.h} mm ×${it.copies} 組` : `${it.w}×${it.h} mm ×${it.copies}`;
+    li.setAttribute('aria-label', `${name.textContent}、${it.w}×${it.h} mm、${it.type === 'lamp' && it.pair === 'mirror' ? `${it.copies} 組（${sheetCount(it)} 枚）` : `${it.copies} 枚`}`);
     const actions = document.createElement('span'); actions.className = 'actions';
     const mk = (label, title, fn) => {
       const b = document.createElement('button'); b.textContent = label; b.title = title; b.setAttribute('aria-label', title);
@@ -697,7 +698,8 @@ function renderEditor() {
   // 共通
   const g = sec(null);
   g.appendChild(field('名前（任意）', text(() => it.name, v => { it.name = v; })));
-  row(g, field('幅 mm', num(() => it.w, v => { it.w = v; }, 0.1, 1)), field('高さ mm', num(() => it.h, v => { it.h = v; }, 0.1, 1)), field('枚数', num(() => it.copies, v => { it.copies = v; }, 1, 0)));
+  row(g, field('幅 mm', num(() => it.w, v => { it.w = v; }, 0.1, 1)), field('高さ mm', num(() => it.h, v => { it.h = v; }, 0.1, 1)),
+    field(it.type === 'lamp' && it.pair === 'mirror' ? '組数' : '枚数', num(() => it.copies, v => { it.copies = v; }, 1, 0)));
 
   if (it.type === 'sign') {
     const s1 = sec('表示器');
@@ -763,6 +765,75 @@ function renderEditor() {
     row(s1, field('フォント', fontSel()), field('太さ', weightSel()));
     row(s1, field('揃え', sel([['left', '左'], ['center', '中央'], ['right', '右']], () => it.align, v => { it.align = v; })), field('内側余白 %', num(() => it.padding, v => { it.padding = v; }, 1, 0)), field('字間 %', num(() => it.letterSpacing, v => { it.letterSpacing = v; }, 1, -20)));
     backgroundEditor();
+  } else if (it.type === 'lamp') {
+    const sp = sec('左右');
+    row(sp, field('左右', sel([['single', '1 枚ずつ（左右同じ）'], ['mirror', '左右ペア（2 枚目は鏡写し）']], () => it.pair || 'single', v => { it.pair = v; })));
+    const pn = document.createElement('p'); pn.className = 'note';
+    pn.textContent = '前照灯と尾灯が並ぶ形のように左右で向きが逆になるときは、左右ペアにすると 1 組で鏡写しの 2 枚を並べます。';
+    sp.appendChild(pn);
+
+    // ランプの一覧（色ごと）
+    const sl = sec('ランプ');
+    const quick = document.createElement('div'); quick.className = 'row lamp-quick';
+    const qlab = document.createElement('span'); qlab.className = 'note'; qlab.textContent = '色をまとめて:';
+    quick.appendChild(qlab);
+    for (const [label, col] of [['前照灯', LAMP_COLORS.head], ['LED', LAMP_COLORS.led], ['尾灯', LAMP_COLORS.tail], ['標識灯', LAMP_COLORS.marker]]) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small';
+      b.textContent = label; b.dataset.key = keyFor('まとめて:' + label);
+      b.setAttribute('aria-label', `すべてのランプを${label}の色にする`);
+      b.addEventListener('click', () => { it.lamps.forEach(l => { l.color = col; }); update(); });
+      quick.appendChild(b);
+    }
+    sl.appendChild(quick);
+    it.lamps.forEach((lamp, i) => {
+      const prev = section; section = `ランプ:${i + 1}`;
+      const box = document.createElement('div'); box.className = 'band';
+      const head = document.createElement('div'); head.className = 'band-head';
+      const ttl = document.createElement('span'); ttl.textContent = `ランプ ${i + 1}`;
+      const acts = document.createElement('span'); acts.className = 'band-actions';
+      const mk = (label, aria, fn, disabled) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small'; b.textContent = label; b.setAttribute('aria-label', aria); b.disabled = !!disabled; b.dataset.key = keyFor(aria); b.addEventListener('click', fn); return b; };
+      const n = it.lamps.length;
+      const word = it.arrange === 'column' ? ['上へ', '下へ'] : ['左へ', '右へ'];
+      acts.append(
+        mk(it.arrange === 'column' ? '↑' : '←', `ランプ ${i + 1} を${word[0]}`, () => { [it.lamps[i - 1], it.lamps[i]] = [it.lamps[i], it.lamps[i - 1]]; requestFocus(`${it.id}:ランプ:${i}:ランプ ${i} を${word[0]}`); update(); }, i === 0),
+        mk(it.arrange === 'column' ? '↓' : '→', `ランプ ${i + 1} を${word[1]}`, () => { [it.lamps[i + 1], it.lamps[i]] = [it.lamps[i], it.lamps[i + 1]]; requestFocus(`${it.id}:ランプ:${i + 2}:ランプ ${i + 2} を${word[1]}`); update(); }, i === n - 1),
+        mk('✕', `ランプ ${i + 1} を削除`, () => { it.lamps.splice(i, 1); requestFocus(`${it.id}:ランプ:追加`); update(); }, n <= 1),
+      );
+      head.append(ttl, acts); box.appendChild(head);
+      row(box, color('色', () => lamp.color, v => { lamp.color = v; }));
+      sl.appendChild(box);
+      section = prev;
+    });
+    const addL = document.createElement('button'); addL.type = 'button'; addL.className = 'btn small';
+    addL.textContent = '＋ ランプを追加'; addL.dataset.key = `${it.id}:ランプ:追加`;
+    addL.disabled = it.lamps.length >= 6;
+    addL.addEventListener('click', () => { it.lamps.push(makeLamp(it.lamps.at(-1)?.color || LAMP_COLORS.head)); requestFocus(`${it.id}:ランプ:${it.lamps.length}:色`); update(); });
+    sl.appendChild(addL);
+
+    // 形と並べ方（全ランプ共通）
+    const sf = sec('ランプの形');
+    row(sf, field('形', sel([['round', '丸・楕円'], ['rect', '角型'], ['pill', '帯（両端が丸い）']], () => it.lampShape, v => { it.lampShape = v; })),
+      field('見た目', sel([['glow', '光って見える'], ['lens', 'レンズ風'], ['flat', 'ベタ塗り']], () => it.lampStyle, v => { it.lampStyle = v; })));
+    row(sf, field('大きさ %', num(() => it.lampSize, v => { it.lampSize = v; }, 1, 5)), field('横長さ（幅÷高さ）', num(() => it.lampAspect, v => { it.lampAspect = v; }, 0.1, 0.2)));
+    if (it.lampShape === 'rect') row(sf, field('角の丸み %', num(() => it.lampRadius, v => { it.lampRadius = v; }, 1, 0)));
+    row(sf, field('縁の太さ %（0 でなし）', num(() => it.ring, v => { it.ring = v; }, 1, 0)), color('縁の色', () => it.ringColor, v => { it.ringColor = v; }));
+    const sa = sec('並べ方');
+    row(sa, field('向き', sel([['row', '横に並べる'], ['column', '縦に並べる']], () => it.arrange, v => { it.arrange = v; })),
+      field('寄せ方', sel([['spread', '均等に広げる'], ['center', '中央に寄せる']], () => it.distribute, v => { it.distribute = v; })));
+    row(sa, field('間隔 %', num(() => it.gap, v => { it.gap = v; }, 1, 0)), field('内側の余白 %', num(() => it.padding, v => { it.padding = v; }, 1, 0)));
+    const an = document.createElement('p'); an.className = 'note';
+    an.textContent = '大きさはケースの内側の高さ（縦に並べるときは幅）に対する割合です。入りきらないときは自動で縮めます。';
+    sa.appendChild(an);
+
+    // ケース
+    const sh = sec('ケース（台座）');
+    sh.appendChild(check('ケースを付ける', () => it.housing.enabled, v => { it.housing.enabled = v; }));
+    if (it.housing.enabled) {
+      row(sh, color('ケースの色', () => it.housing.color, v => { it.housing.color = v; }));
+      row(sh, field('角の丸み %（50 で両端が丸い）', num(() => it.housing.radius, v => { it.housing.radius = v; }, 1, 0)), field('シールの縁からの余白 %', num(() => it.housing.inset, v => { it.housing.inset = v; }, 1, 0)));
+      row(sh, field('ケースの縁の太さ %', num(() => it.housing.border, v => { it.housing.border = v; }, 1, 0)), color('ケースの縁の色', () => it.housing.borderColor, v => { it.housing.borderColor = v; }));
+    }
+    backgroundEditor();
   } else if (it.type === 'image') {
     const s1 = sec('画像');
     const f = document.createElement('input'); f.type = 'file'; f.accept = 'image/*'; f.dataset.key = keyFor('画像ファイル');
@@ -819,7 +890,7 @@ function renderPreview() {
 
 function updateLayoutWarning(lay = layoutSheet(project)) {
   const warn = $('layout-warn');
-  const total = project.items.reduce((a, b) => a + Math.max(0, Math.floor(b.copies || 0)), 0);
+  const total = project.items.reduce((a, b) => a + sheetCount(b), 0);
   if (lay.overflow > 0) {
     warn.hidden = false;
     warn.textContent = `${total} 枚中 ${lay.overflow} 枚がシートに収まりません。枚数・間隔・余白を減らすか、用紙を大きくしてください。`;

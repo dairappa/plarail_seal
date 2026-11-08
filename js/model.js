@@ -86,6 +86,26 @@ const IMAGE_BASE = {
   bg: '#ffffff', fill: solidFill('#ffffff'), src: '', fit: 'contain', edits: null,
 };
 
+// 前照灯・尾灯。ケース（台座）の中にランプを横か縦に並べる。寸法の % はケースの内側の高さに対する割合
+export const LAMP_COLORS = {
+  head: '#fff6d8',     // 前照灯（電球色寄りの白）
+  led: '#f2f8ff',      // LED 前照灯（青白い）
+  tail: '#e4261c',     // 尾灯
+  marker: '#ff9a1f',   // 標識灯・通過標識灯
+};
+export function makeLamp(color = LAMP_COLORS.head) {
+  return { color };
+}
+const LAMP_BASE = {
+  type: 'lamp', name: '', w: 6, h: 3, copies: 1, pair: 'single',
+  bg: '#ffffff', fill: solidFill('#ffffff'),
+  housing: { enabled: true, color: '#1a1a1a', radius: 30, inset: 0, border: 0, borderColor: '#c0c0c0' },
+  lampShape: 'round', lampSize: 70, lampAspect: 1, lampRadius: 20,
+  lampStyle: 'glow', ring: 0, ringColor: '#c0c0c0',
+  arrange: 'row', distribute: 'spread', gap: 20, padding: 12,
+  lamps: [makeLamp(LAMP_COLORS.head), makeLamp(LAMP_COLORS.head)],
+};
+
 export const PRESETS = [
   {
     id: 'kintetsu-1a-led',
@@ -184,14 +204,73 @@ export const PRESETS = [
     },
   },
   {
+    id: 'lamp-round2',
+    name: '前照灯: 丸目 2 灯',
+    item: { ...LAMP_BASE, name: '前照灯 丸目 2 灯', w: 6, h: 3 },
+  },
+  {
+    id: 'lamp-round1-ring',
+    name: '前照灯: 丸目 1 灯（銀の縁）',
+    item: {
+      ...LAMP_BASE, name: '前照灯 丸目 1 灯', w: 3.5, h: 3.5, copies: 2,
+      housing: { enabled: false, color: '#1a1a1a', radius: 50, inset: 0, border: 0, borderColor: '#c0c0c0' },
+      lampSize: 100, ring: 14, ringColor: '#c8c8c8', lampStyle: 'lens', padding: 0, lamps: [makeLamp(LAMP_COLORS.head)],
+    },
+  },
+  {
+    id: 'lamp-square2',
+    name: '前照灯: 角型 2 灯（黒ケース）',
+    item: {
+      ...LAMP_BASE, name: '前照灯 角型 2 灯', w: 7, h: 2.6,
+      housing: { enabled: true, color: '#111111', radius: 12, inset: 0, border: 0, borderColor: '#c0c0c0' },
+      lampShape: 'rect', lampAspect: 1.5, lampRadius: 15, lampSize: 68,
+    },
+  },
+  {
+    id: 'lamp-head-tail-row',
+    name: '前照灯・尾灯: 横並び（左右ペア）',
+    item: {
+      ...LAMP_BASE, name: '前照灯・尾灯 横並び', w: 5.5, h: 2.5, pair: 'mirror',
+      housing: { enabled: true, color: '#111111', radius: 50, inset: 0, border: 0, borderColor: '#c0c0c0' },
+      lamps: [makeLamp(LAMP_COLORS.tail), makeLamp(LAMP_COLORS.head)],
+    },
+  },
+  {
+    id: 'lamp-head-tail-col',
+    name: '前照灯・尾灯: 縦並び',
+    item: {
+      ...LAMP_BASE, name: '前照灯・尾灯 縦並び', w: 2.6, h: 5, copies: 2, arrange: 'column',
+      housing: { enabled: true, color: '#111111', radius: 30, inset: 0, border: 0, borderColor: '#c0c0c0' },
+      lampSize: 80, lamps: [makeLamp(LAMP_COLORS.head), makeLamp(LAMP_COLORS.tail)],
+    },
+  },
+  {
+    id: 'lamp-led-line',
+    name: '前照灯: LED ライン（細長い帯）',
+    item: {
+      ...LAMP_BASE, name: '前照灯 LED ライン', w: 8, h: 1.6, copies: 2,
+      housing: { enabled: true, color: '#111111', radius: 50, inset: 0, border: 0, borderColor: '#c0c0c0' },
+      lampShape: 'pill', lampAspect: 6, lampSize: 55, padding: 18, lamps: [makeLamp(LAMP_COLORS.led)],
+    },
+  },
+  {
+    id: 'lamp-tail2',
+    name: '尾灯: 丸 2 灯（赤）',
+    item: { ...LAMP_BASE, name: '尾灯 丸 2 灯', w: 5, h: 2.5, lamps: [makeLamp(LAMP_COLORS.tail), makeLamp(LAMP_COLORS.tail)] },
+  },
+  {
     id: 'car-number',
     name: '車番（文字シール）',
     item: { ...TEXT_BASE, name: '車番' },
   },
 ];
 
+function baseOf(type) {
+  return type === 'sign' ? SIGN_BASE : type === 'text' ? TEXT_BASE : type === 'lamp' ? LAMP_BASE : IMAGE_BASE;
+}
+
 export function makeItem(type, overrides = {}) {
-  const base = type === 'sign' ? SIGN_BASE : type === 'text' ? TEXT_BASE : IMAGE_BASE;
+  const base = baseOf(type);
   // 深いコピー（kind/dest オブジェクトを共有しないように）
   const item = JSON.parse(JSON.stringify({ ...base, ...overrides }));
   item.id = uid();
@@ -208,7 +287,14 @@ export function itemLabel(item) {
     return parts.filter(Boolean).join(' ') || '行先表示';
   }
   if (item.type === 'text') return (item.text || '文字').split('\n')[0];
+  if (item.type === 'lamp') return '前照灯・尾灯';
   return '画像';
+}
+
+/** シート上に並ぶ枚数（左右ペアは 1 組で 2 枚） */
+export function sheetCount(item) {
+  const n = Math.max(0, Math.floor(item.copies ?? 1));
+  return item.type === 'lamp' && item.pair === 'mirror' ? n * 2 : n;
 }
 
 /** 行先表示に描かれる文字が 1 つもないか */
@@ -262,8 +348,12 @@ export function normalizeProject(raw) {
   p.calib = { ...(raw.calib || {}) };
   p.colorCorr = { ...defaultColorCorr(), ...(raw.colorCorr || {}) };
   p.items = (raw.items || []).map(it => {
-    const base = it.type === 'sign' ? SIGN_BASE : it.type === 'text' ? TEXT_BASE : IMAGE_BASE;
+    const base = baseOf(it.type);
     const m = JSON.parse(JSON.stringify({ ...base, ...it }));
+    if (it.type === 'lamp') {
+      m.housing = { ...LAMP_BASE.housing, ...(it.housing || {}) };
+      m.lamps = Array.isArray(it.lamps) ? it.lamps.map(l => ({ ...makeLamp(), ...l })) : JSON.parse(JSON.stringify(LAMP_BASE.lamps));
+    }
     if (it.type === 'sign') {
       m.kind = { ...SIGN_BASE.kind, ...(it.kind || {}) };
       if (it.kind && it.kind.textColor == null) m.kind.textColor = it.kind.style === 'fill' ? (it.bg || '#000000') : m.kind.color;

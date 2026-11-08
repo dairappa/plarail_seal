@@ -218,6 +218,32 @@ c('色補正: 印刷のずれが大きく縮む（平均 ΔE）', cc.after < cc.
 c('色補正: 純白（紙の色）は変えない', cc.white.every(v => v >= 254.5), JSON.stringify(cc.white));
 c('色補正: 書き出しにかかり、補正なしの書き出しとは色が変わる', cc.corr.some((v, i) => Math.abs(v - cc.raw[i]) > 8) && cc.paperCorner.every(v => v === 255), JSON.stringify(cc));
 
+// 前照灯・尾灯: 左右ペアは 1 組で 2 枚、2 枚目は鏡写し（尾灯と前照灯の位置が入れ替わる）
+const lamp = await page.evaluate(async () => {
+  const app = window.__app, p = app.project, saved = JSON.stringify(p);
+  const { makeItem, PRESETS, sheetCount } = await import('./js/model.js');
+  const preset = id => PRESETS.find(x => x.id === id).item;
+  p.items = [makeItem('lamp', { ...preset('lamp-head-tail-row'), copies: 2 }), makeItem('lamp', preset('lamp-round2'))];
+  p.marks = 'none'; p.ruler = false; p.scaleK = 100; p.dpi = 600; app.update(); app.flush();
+  const l = app.layout(), S = 600 / 25.4, c = app.exportCanvas(), ctx = c.getContext('2d');
+  const at = (q, fx) => [...ctx.getImageData(Math.round((q.x + q.w * fx) * S), Math.round((q.y + q.h / 2) * S), 1, 1).data].slice(0, 3);
+  const pairs = l.placed.filter(q => q.item.pair === 'mirror');
+  const res = {
+    placed: l.placed.length, mirrored: l.placed.filter(q => q.mirror).length, count: sheetCount(p.items[0]),
+    firstLeft: at(pairs[0], 0.28), firstRight: at(pairs[0], 0.72), secondLeft: at(pairs[1], 0.28), secondRight: at(pairs[1], 0.72),
+    roundGap: at(l.placed.find(q => q.item.pair !== 'mirror'), 0.5),
+    names: (await import('./js/model.js')).PRESETS.filter(x => x.id.startsWith('lamp-')).length,
+  };
+  app.project = JSON.parse(saved);
+  return res;
+});
+// 「光って見える」は中心を白く飛ばすので、中心では赤みの強さ（R − G）で尾灯を見分ける
+const red = c => c[0] - c[1] > 40, light = c => c.every(v => v > 200) && c[0] - c[1] < 20;
+c('前照灯・尾灯: 左右ペア 2 組で 4 枚並び、半分が鏡写し', lamp.placed === 5 && lamp.mirrored === 2 && lamp.count === 4, JSON.stringify({ placed: lamp.placed, mirrored: lamp.mirrored, count: lamp.count }));
+c('前照灯・尾灯: 1 枚目は左が尾灯・右が前照灯、鏡写しの 2 枚目は逆になる', red(lamp.firstLeft) && light(lamp.firstRight) && light(lamp.secondLeft) && red(lamp.secondRight), JSON.stringify(lamp));
+c('前照灯: 丸目 2 灯のランプの間はケースの色（黒）', lamp.roundGap.every(v => v < 40), JSON.stringify(lamp.roundGap));
+c('前照灯・尾灯のプリセットが 7 種類ある', lamp.names === 7, String(lamp.names));
+
 // localStorage 保存 → 再読み込みで復元
 await page.waitForTimeout(500);
 await page.reload();
