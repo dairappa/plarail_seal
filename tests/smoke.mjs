@@ -12,8 +12,16 @@ let dims = await page.evaluate(() => { const cv = window.__app.exportCanvas(); r
 c('L判 300dpi は 1051×1500 px, 補正103.6%', dims[0] === 1051 && dims[1] === 1500 && dims[2] === 103.6, dims.join('×'));
 
 // プリセットを全部追加して配置・描画できる
-const presetCount = await page.evaluate(() => document.querySelectorAll('#add-preset option').length - 1);
-for (let i = 1; i <= presetCount; i++) await page.selectOption('#add-preset', { index: i });
+// プリセットの選択画面から、すべてのプリセットを 1 つずつ追加する
+await page.click('#btn-preset');
+const presetIds = await page.evaluate(() => [...document.querySelectorAll('#preset-list .preset-card')].map(b => b.dataset.preset));
+await page.keyboard.press('Escape');
+for (const id of presetIds) {
+  await page.click('#btn-preset');
+  await page.click(`.preset-card[data-preset="${id}"]`);
+}
+await page.waitForTimeout(100);
+const presetCount = presetIds.length;
 const n = await page.evaluate(() => window.__app.project.items.length);
 c('プリセット追加', n === presetCount + 1, `items=${n}`);
 const lay = await page.evaluate(() => { const l = window.__app.layout(); return { placed: l.placed.length, overflow: l.overflow, ruler: !!l.ruler }; });
@@ -242,7 +250,35 @@ const red = c => c[0] - c[1] > 40, light = c => c.every(v => v > 200) && c[0] - 
 c('前照灯・尾灯: 左右ペア 2 組で 4 枚並び、半分が鏡写し', lamp.placed === 5 && lamp.mirrored === 2 && lamp.count === 4, JSON.stringify({ placed: lamp.placed, mirrored: lamp.mirrored, count: lamp.count }));
 c('前照灯・尾灯: 1 枚目は左が尾灯・右が前照灯、鏡写しの 2 枚目は逆になる', red(lamp.firstLeft) && light(lamp.firstRight) && light(lamp.secondLeft) && red(lamp.secondRight), JSON.stringify(lamp));
 c('前照灯: 丸目 2 灯のランプの間はケースの色（黒）', lamp.roundGap.every(v => v < 40), JSON.stringify(lamp.roundGap));
-c('前照灯・尾灯のプリセットが 10 種類ある', lamp.names === 10, String(lamp.names));
+const cats = await page.evaluate(async () => {
+  const { PRESETS, PRESET_CATEGORIES } = await import('./js/model.js');
+  const ids = new Set(PRESET_CATEGORIES.map(c => c.id));
+  return { total: PRESETS.length, lamp: PRESETS.filter(p => p.id.startsWith('lamp-')).length, uncategorized: PRESETS.filter(p => !ids.has(p.category)).map(p => p.id),
+    shown: document.querySelectorAll('#preset-list .preset-card').length, sections: document.querySelectorAll('#preset-list .preset-cat').length };
+});
+c('すべてのプリセットにカテゴリがあり、選択画面に全部並ぶ', cats.uncategorized.length === 0 && cats.shown === cats.total && cats.sections === 6 && cats.lamp >= 17, JSON.stringify(cats));
+
+// 段・見た目: 「2 灯の下に尾灯ライン」（上段に白と黄、下段に赤いライン）、LED の粒、消灯
+const rows = await page.evaluate(async () => {
+  const app = window.__app, p = app.project, saved = JSON.stringify(p);
+  const { makeItem, PRESETS } = await import('./js/model.js');
+  const P = id => PRESETS.find(x => x.id === id).item;
+  p.items = [makeItem('lamp', { ...P('lamp-2-over-tailline'), pair: 'single' }), makeItem('lamp', P('lamp-led-dots2')),
+    makeItem('lamp', P('lamp-tail2')), makeItem('lamp', P('lamp-tail2-off'))];
+  p.marks = 'none'; p.ruler = false; p.scaleK = 100; p.dpi = 600; app.update(); app.flush();
+  const l = app.layout(), S = 600 / 25.4, ctx = app.exportCanvas().getContext('2d');
+  const at = (q, mx, my) => [...ctx.getImageData(Math.round((q.x + mx) * S), Math.round((q.y + my) * S), 1, 1).data].slice(0, 3);
+  const [hc, dots, lit, off] = l.placed;
+  // LED の粒: 左のランプの範囲で明るさのばらつき（粒と隙間）があるか
+  const lum = []; for (let i = 0; i < 12; i++) for (let j = 0; j < 12; j++) { const c = at(dots, 1.1 + i * 0.07, 1.05 + j * 0.07); lum.push(0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]); }
+  const res = { hcWhite: at(hc, 1.95, 1.35), hcAmber: at(hc, 4.85, 1.35), hcTail: at(hc, 3.25, 2.69), hcGap: at(hc, 3.25, 2.25),
+    dotsSpread: Math.max(...lum) - Math.min(...lum), litTail: at(lit, 1.25, 1.25), offTail: at(off, 1.25, 1.25) };
+  app.project = JSON.parse(saved);
+  return res;
+});
+c('2 段: 上段に白と黄色の前照灯、下段に赤い尾灯ライン、段の間はケースの色', rows.hcWhite.every(v => v > 200) && rows.hcAmber[0] > 200 && rows.hcAmber[1] > 140 && rows.hcAmber[2] < 140 && rows.hcTail[0] - rows.hcTail[1] > 60 && rows.hcGap.every(v => v < 60), JSON.stringify(rows));
+c('LED の粒: ランプの中に明るい粒と暗い隙間がある', rows.dotsSpread > 100, rows.dotsSpread.toFixed(0));
+c('消灯: 点灯より暗い赤になる', rows.offTail[0] < rows.litTail[0] - 60 && rows.offTail[0] > rows.offTail[1], JSON.stringify([rows.litTail, rows.offTail]));
 
 // ケースの形と回転: シール内の決まった位置が「背景（白）」か「ケース（黒）」か
 const shp = await page.evaluate(async () => {

@@ -134,7 +134,7 @@
           <option value="image">画像</option>
         </select>
         <button id="btn-add" class="btn primary">追加</button>
-        <select id="add-preset" aria-label="プリセットから追加"></select>
+        <button id="btn-preset" class="btn">プリセットから選ぶ…</button>
       </div>
       <ul id="item-list" class="item-list" role="listbox" aria-label="シールの一覧"></ul>
       <p class="note">↑↓ で選択、Delete で削除、Alt+↑↓ で並べ替え、Ctrl+D で複製</p>
@@ -205,6 +205,15 @@
       <li>プロジェクトはブラウザに自動保存されます。別の端末に持ち運ぶときは「プロジェクト保存」で JSON を書き出してください。</li>
     </ul>
     <form method="dialog"><button class="btn primary">閉じる</button></form>
+  </article>
+</dialog>
+
+<dialog id="preset-dialog" class="wide" aria-labelledby="preset-title">
+  <article>
+    <h2 id="preset-title">プリセットから選ぶ</h2>
+    <nav id="preset-nav" class="preset-nav" aria-label="カテゴリ"></nav>
+    <div id="preset-list" class="preset-list"></div>
+    <form method="dialog"><button class="btn">閉じる</button></form>
   </article>
 </dialog>
 

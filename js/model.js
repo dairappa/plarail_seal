@@ -86,32 +86,73 @@ const IMAGE_BASE = {
   bg: '#ffffff', fill: solidFill('#ffffff'), src: '', fit: 'contain', edits: null,
 };
 
-// 前照灯・尾灯。ケース（台座）の中にランプを横か縦に並べる。寸法の % はケースの内側の高さに対する割合
+// 前照灯・尾灯。ケース（台座）の中に、ランプの「段」を上から順に積む。
+// 段ごとにランプの色・形・大きさ・見た目・寄せ方を持つ（例: 上段に前照灯 2 灯、下段に尾灯ライン）
 export const LAMP_COLORS = {
   head: '#fff6d8',     // 前照灯（電球色寄りの白）
   led: '#f2f8ff',      // LED 前照灯（青白い）
+  amber: '#ffc93a',    // 黄色い前照灯（ハロゲン・フォグ）
   tail: '#e4261c',     // 尾灯
   marker: '#ff9a1f',   // 標識灯・通過標識灯
 };
 export function makeLamp(color = LAMP_COLORS.head) {
   return { color };
 }
+/** ランプの段。size は段の高さに対する %、gap はランプの大きさに対する % */
+const LAMP_ROW = {
+  weight: 1,                // 段の高さの比率
+  lamps: [makeLamp(), makeLamp()],
+  shape: 'round',           // round 丸・楕円 / rect 角型 / pill 帯
+  size: 70, aspect: 1, radius: 20,
+  style: 'glow',            // glow 光って見える / lens レンズ風 / flat ベタ塗り / off 消灯 / dots LED の粒
+  dots: 3,                  // LED の粒: 短い辺に並ぶ粒の数
+  ring: 0, ringColor: '#c0c0c0',
+  distribute: 'spread',     // spread 均等 / center 中央 / left 左寄せ / right 右寄せ
+  gap: 20,
+};
+export function makeLampRow(o = {}) {
+  const r = JSON.parse(JSON.stringify({ ...LAMP_ROW, ...o }));
+  r.lamps = (o.lamps || LAMP_ROW.lamps).map(l => ({ ...makeLamp(), ...l }));
+  return r;
+}
 const LAMP_HOUSING = { enabled: true, shape: 'rect', topRatio: 70, skew: 15, color: '#1a1a1a', radius: 30, inset: 0, border: 0, borderColor: '#c0c0c0' };
 const housing = o => ({ ...LAMP_HOUSING, ...o });
+const lampRow = makeLampRow;
 const LAMP_BASE = {
   type: 'lamp', name: '', w: 6, h: 3, copies: 1, pair: 'single',
   bg: '#ffffff', fill: solidFill('#ffffff'),
   // shape: rect 長方形 / trapezoid 台形 / slant 片側が斜め / parallelogram 平行四辺形
   housing: housing({}),
-  lampShape: 'round', lampSize: 70, lampAspect: 1, lampRadius: 20,
-  lampStyle: 'glow', ring: 0, ringColor: '#c0c0c0', lampSkew: true,
-  arrange: 'row', distribute: 'spread', gap: 20, padding: 12, rotate: 0,
-  lamps: [makeLamp(LAMP_COLORS.head), makeLamp(LAMP_COLORS.head)],
+  rows: [lampRow()],
+  rowGap: 12,               // 段と段の間（ケースの内側の高さに対する %）
+  padding: 12, rotate: 0, lampSkew: true,
 };
+
+/** 旧形式（lamps と共通設定を直接持つ）のランプを段に変換する */
+function lampRowsFromLegacy(it) {
+  const common = {
+    shape: it.lampShape, size: it.lampSize, aspect: it.lampAspect, radius: it.lampRadius,
+    style: it.lampStyle, ring: it.ring, ringColor: it.ringColor, distribute: it.distribute, gap: it.gap,
+  };
+  Object.keys(common).forEach(k => common[k] === undefined && delete common[k]);
+  const lamps = Array.isArray(it.lamps) && it.lamps.length ? it.lamps : LAMP_ROW.lamps;
+  if (it.arrange === 'column') return lamps.map(l => makeLampRow({ ...common, lamps: [l] }));
+  return [makeLampRow({ ...common, lamps })];
+}
+
+/** プリセットのカテゴリ（表示順） */
+export const PRESET_CATEGORIES = [
+  { id: 'sign', name: '行先表示（方向幕・LED）' },
+  { id: 'lamp-basic', name: '前照灯・尾灯: 基本の形' },
+  { id: 'lamp-combo', name: '前照灯・尾灯: 組み合わせ・2 段' },
+  { id: 'lamp-shape', name: '前照灯・尾灯: 斜め・変形' },
+  { id: 'band', name: '帯・ライン' },
+  { id: 'text', name: '文字・車番' },
+];
 
 export const PRESETS = [
   {
-    id: 'kintetsu-1a-led',
+    id: 'kintetsu-1a-led', category: 'sign',
     name: '近鉄 1A系 / 8A系 側面 LED 表示（普通 名古屋 E01）',
     item: {
       ...SIGN_BASE, name: '近鉄 側面LED 普通 名古屋',
@@ -121,7 +162,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'kintetsu-1a-led-exp',
+    id: 'kintetsu-1a-led-exp', category: 'sign',
     name: '近鉄 側面 LED 表示（急行 大阪難波）',
     item: {
       ...SIGN_BASE, name: '近鉄 側面LED 急行 大阪難波',
@@ -130,7 +171,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'kintetsu-exp-orange',
+    id: 'kintetsu-exp-orange', category: 'sign',
     name: '近鉄 側面 LED 表示（急行 宇治山田・橙塗り種別）',
     item: {
       ...SIGN_BASE, name: '近鉄 側面LED 急行 宇治山田',
@@ -139,7 +180,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'kintetsu-en-right',
+    id: 'kintetsu-en-right', category: 'sign',
     name: '近鉄 側面 LED 表示（英字を横に・急行 五十鈴川）',
     item: {
       ...SIGN_BASE, name: '近鉄 側面LED 急行 五十鈴川（英字横）',
@@ -149,7 +190,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'dest-box',
+    id: 'dest-box', category: 'sign',
     name: '行先を枠付きに（幕式・賢島）',
     item: {
       ...SIGN_BASE, name: '幕式 枠付き行先', bg: '#ffffff', fill: solidFill('#ffffff'),
@@ -159,7 +200,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'led-dots',
+    id: 'led-dots', category: 'sign',
     name: 'LED ドット風（DotGothic16・ドット効果あり）',
     item: {
       ...SIGN_BASE, name: 'LED ドット風', font: 'DotGothic16', weight: 400, ledDots: true, ledRows: 24,
@@ -168,7 +209,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'roll-sign',
+    id: 'roll-sign', category: 'sign',
     name: '幕式 方向幕（白地・黒文字）',
     item: {
       ...SIGN_BASE, name: '幕式 方向幕', bg: '#ffffff', fill: solidFill('#ffffff'),
@@ -178,7 +219,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'roll-sign-simple',
+    id: 'roll-sign-simple', category: 'sign',
     name: '幕式 行先のみ（英字なし）',
     item: {
       ...SIGN_BASE, name: '幕式 行先のみ', bg: '#ffffff', fill: solidFill('#ffffff'),
@@ -188,7 +229,7 @@ export const PRESETS = [
     },
   },
   {
-    id: 'stripe-band',
+    id: 'stripe-band', category: 'band',
     name: '車両帯（3 色ストライプ・文字なし）',
     item: {
       ...SIGN_BASE, name: '車両帯 ストライプ', w: 20, h: 3, copies: 2, bg: '#c8102e',
@@ -199,98 +240,170 @@ export const PRESETS = [
     },
   },
   {
-    id: 'gradient-plate',
+    id: 'gradient-plate', category: 'text',
     name: '車番（グラデーション地）',
     item: {
       ...TEXT_BASE, name: '車番 グラデ地', text: '1101', color: '#ffffff', bg: '#1d3f8f',
       fill: { mode: 'solid', bands: [{ weight: 1, color: '#1d3f8f', grad: true, color2: '#7fb2ff', gradDir: 'v' }] },
     },
   },
+  // ---- 前照灯・尾灯: 基本の形
   {
-    id: 'lamp-round2',
-    name: '前照灯: 丸目 2 灯',
+    id: 'lamp-round2', category: 'lamp-basic',
+    name: '丸目 2 灯',
     item: { ...LAMP_BASE, name: '前照灯 丸目 2 灯', w: 6, h: 3 },
   },
   {
-    id: 'lamp-round1-ring',
-    name: '前照灯: 丸目 1 灯（銀の縁）',
+    id: 'lamp-round1-ring', category: 'lamp-basic',
+    name: '丸目 1 灯（銀の縁）',
     item: {
-      ...LAMP_BASE, name: '前照灯 丸目 1 灯', w: 3.5, h: 3.5, copies: 2,
-      housing: housing({ enabled: false, color: '#1a1a1a', radius: 50 }),
-      lampSize: 100, ring: 14, ringColor: '#c8c8c8', lampStyle: 'lens', padding: 0, lamps: [makeLamp(LAMP_COLORS.head)],
+      ...LAMP_BASE, name: '前照灯 丸目 1 灯', w: 3.5, h: 3.5, copies: 2, padding: 0,
+      housing: housing({ enabled: false, radius: 50 }),
+      rows: [lampRow({ lamps: [makeLamp(LAMP_COLORS.head)], size: 100, ring: 14, ringColor: '#c8c8c8', style: 'lens' })],
     },
   },
   {
-    id: 'lamp-square2',
-    name: '前照灯: 角型 2 灯（黒ケース）',
+    id: 'lamp-square2', category: 'lamp-basic',
+    name: '角型 2 灯（黒ケース）',
     item: {
       ...LAMP_BASE, name: '前照灯 角型 2 灯', w: 7, h: 2.6,
-      housing: housing({ enabled: true, color: '#111111', radius: 12 }),
-      lampShape: 'rect', lampAspect: 1.5, lampRadius: 15, lampSize: 68,
+      housing: housing({ color: '#111111', radius: 12 }),
+      rows: [lampRow({ shape: 'rect', aspect: 1.5, radius: 15, size: 68 })],
     },
   },
   {
-    id: 'lamp-head-tail-row',
-    name: '前照灯・尾灯: 横並び（左右ペア）',
+    id: 'lamp-led-dots2', category: 'lamp-basic',
+    name: 'LED の粒の丸目 2 灯',
+    item: {
+      ...LAMP_BASE, name: '前照灯 LED 粒 2 灯', w: 6, h: 3,
+      housing: housing({ color: '#111111', radius: 30 }),
+      rows: [lampRow({ lamps: [makeLamp(LAMP_COLORS.led), makeLamp(LAMP_COLORS.led)], size: 76, style: 'dots', dots: 3 })],
+    },
+  },
+  {
+    id: 'lamp-led-line', category: 'lamp-basic',
+    name: 'LED ライン（細長い帯）',
+    item: {
+      ...LAMP_BASE, name: '前照灯 LED ライン', w: 8, h: 1.6, copies: 2, padding: 18,
+      housing: housing({ color: '#111111', radius: 50 }),
+      rows: [lampRow({ lamps: [makeLamp(LAMP_COLORS.led)], shape: 'pill', aspect: 6, size: 55 })],
+    },
+  },
+  {
+    id: 'lamp-tail2', category: 'lamp-basic',
+    name: '尾灯 丸 2 灯（点灯）',
+    item: { ...LAMP_BASE, name: '尾灯 丸 2 灯', w: 5, h: 2.5, rows: [lampRow({ lamps: [makeLamp(LAMP_COLORS.tail), makeLamp(LAMP_COLORS.tail)] })] },
+  },
+  {
+    id: 'lamp-tail2-off', category: 'lamp-basic',
+    name: '尾灯 丸 2 灯（消灯）',
+    item: { ...LAMP_BASE, name: '尾灯 丸 2 灯 消灯', w: 5, h: 2.5, rows: [lampRow({ lamps: [makeLamp(LAMP_COLORS.tail), makeLamp(LAMP_COLORS.tail)], style: 'off' })] },
+  },
+
+  // ---- 前照灯・尾灯: 組み合わせ・2 段
+  {
+    id: 'lamp-head-tail-row', category: 'lamp-combo',
+    name: '前照灯・尾灯の横並び（左右ペア）',
     item: {
       ...LAMP_BASE, name: '前照灯・尾灯 横並び', w: 5.5, h: 2.5, pair: 'mirror',
-      housing: housing({ enabled: true, color: '#111111', radius: 50 }),
-      lamps: [makeLamp(LAMP_COLORS.tail), makeLamp(LAMP_COLORS.head)],
+      housing: housing({ color: '#111111', radius: 50 }),
+      rows: [lampRow({ lamps: [makeLamp(LAMP_COLORS.tail), makeLamp(LAMP_COLORS.head)] })],
     },
   },
   {
-    id: 'lamp-head-tail-col',
-    name: '前照灯・尾灯: 縦並び',
+    id: 'lamp-head-tail-col', category: 'lamp-combo',
+    name: '前照灯の下に尾灯（縦並び）',
     item: {
-      ...LAMP_BASE, name: '前照灯・尾灯 縦並び', w: 2.6, h: 5, copies: 2, arrange: 'column',
-      housing: housing({ enabled: true, color: '#111111', radius: 30 }),
-      lampSize: 80, lamps: [makeLamp(LAMP_COLORS.head), makeLamp(LAMP_COLORS.tail)],
+      ...LAMP_BASE, name: '前照灯・尾灯 縦並び', w: 2.6, h: 5, copies: 2, rowGap: 6,
+      housing: housing({ color: '#111111', radius: 30 }),
+      rows: [lampRow({ lamps: [makeLamp(LAMP_COLORS.head)], size: 80 }), lampRow({ lamps: [makeLamp(LAMP_COLORS.tail)], size: 80 })],
     },
   },
   {
-    id: 'lamp-trapezoid',
-    name: '前照灯: 台形ケース 2 灯',
+    id: 'lamp-2-over-tailline', category: 'lamp-combo',
+    name: '2 灯の下に尾灯ライン（左右ペア）',
+    item: {
+      ...LAMP_BASE, name: '2 灯＋尾灯ライン', w: 6.5, h: 3.4, pair: 'mirror', rowGap: 10, padding: 10,
+      housing: housing({ color: '#1b1b1f', radius: 28 }),
+      rows: [
+        lampRow({ weight: 1.6, lamps: [makeLamp(LAMP_COLORS.led), makeLamp(LAMP_COLORS.amber)], shape: 'rect', aspect: 1.3, radius: 35, size: 78, style: 'lens' }),
+        lampRow({ weight: 0.7, lamps: [makeLamp(LAMP_COLORS.tail)], shape: 'pill', aspect: 9, size: 70 }),
+      ],
+    },
+  },
+  {
+    id: 'lamp-white-amber', category: 'lamp-combo',
+    name: '白と黄色の 2 灯＋消灯の尾灯（左右ペア）',
+    item: {
+      ...LAMP_BASE, name: '白と黄色の 2 灯', w: 6.5, h: 3.2, pair: 'mirror', rowGap: 8, padding: 10,
+      housing: housing({ color: '#26262b', radius: 22, border: 6, borderColor: '#4a4a52' }),
+      rows: [
+        lampRow({ weight: 1.5, lamps: [makeLamp(LAMP_COLORS.head), makeLamp(LAMP_COLORS.amber)], shape: 'rect', aspect: 1.45, radius: 30, size: 80, style: 'glow' }),
+        lampRow({ weight: 0.8, lamps: [makeLamp('#a3221c')], shape: 'rect', aspect: 7, radius: 25, size: 70, style: 'off' }),
+      ],
+    },
+  },
+  {
+    id: 'lamp-tailline-over-2', category: 'lamp-combo',
+    name: '尾灯ラインの下に 2 灯',
+    item: {
+      ...LAMP_BASE, name: '尾灯ライン＋2 灯', w: 6.5, h: 3.4, rowGap: 10, padding: 10,
+      housing: housing({ color: '#111111', radius: 24 }),
+      rows: [
+        lampRow({ weight: 0.7, lamps: [makeLamp(LAMP_COLORS.tail)], shape: 'pill', aspect: 9, size: 70 }),
+        lampRow({ weight: 1.6, lamps: [makeLamp(LAMP_COLORS.head), makeLamp(LAMP_COLORS.head)], size: 78 }),
+      ],
+    },
+  },
+  {
+    id: 'lamp-3-marker', category: 'lamp-combo',
+    name: '前照灯 2 灯＋中央に標識灯',
+    item: {
+      ...LAMP_BASE, name: '前照灯 2 灯＋標識灯', w: 8, h: 2.6,
+      housing: housing({ color: '#111111', radius: 40 }),
+      rows: [lampRow({ lamps: [makeLamp(LAMP_COLORS.head), makeLamp(LAMP_COLORS.marker), makeLamp(LAMP_COLORS.head)], size: 72 })],
+    },
+  },
+
+  // ---- 前照灯・尾灯: 斜め・変形
+  {
+    id: 'lamp-trapezoid', category: 'lamp-shape',
+    name: '台形ケース 2 灯',
     item: {
       ...LAMP_BASE, name: '前照灯 台形ケース 2 灯', w: 7, h: 3,
       housing: housing({ shape: 'trapezoid', topRatio: 72, color: '#111111', radius: 14 }),
-      lampSize: 62,
+      rows: [lampRow({ size: 62 })],
     },
   },
   {
-    id: 'lamp-slant-pair',
-    name: '前照灯・尾灯: 片側が斜めのケース（左右ペア）',
+    id: 'lamp-slant-pair', category: 'lamp-shape',
+    name: '片側が斜めのケース（左右ペア）',
     item: {
       ...LAMP_BASE, name: '前照灯・尾灯 斜めケース', w: 6, h: 2.6, pair: 'mirror',
       housing: housing({ shape: 'slant', topRatio: 78, color: '#111111', radius: 16 }),
-      lampSize: 64, distribute: 'center', gap: 30,
-      lamps: [makeLamp(LAMP_COLORS.tail), makeLamp(LAMP_COLORS.head)],
+      rows: [lampRow({ lamps: [makeLamp(LAMP_COLORS.tail), makeLamp(LAMP_COLORS.head)], size: 64, distribute: 'left', gap: 30 })],
     },
   },
   {
-    id: 'lamp-led-slanted',
-    name: '前照灯: 傾いた LED ライン（左右ペア）',
+    id: 'lamp-led-slanted', category: 'lamp-shape',
+    name: '傾いた LED ライン（左右ペア）',
     item: {
-      ...LAMP_BASE, name: '前照灯 傾いた LED ライン', w: 7, h: 2, pair: 'mirror',
+      ...LAMP_BASE, name: '前照灯 傾いた LED ライン', w: 7, h: 2, pair: 'mirror', padding: 16,
       housing: housing({ shape: 'parallelogram', skew: 25, color: '#111111', radius: 30 }),
-      lampShape: 'pill', lampAspect: 5, lampSize: 55, padding: 16, lamps: [makeLamp(LAMP_COLORS.led)],
+      rows: [lampRow({ lamps: [makeLamp(LAMP_COLORS.led)], shape: 'pill', aspect: 5, size: 55 })],
     },
   },
   {
-    id: 'lamp-led-line',
-    name: '前照灯: LED ライン（細長い帯）',
+    id: 'lamp-tsurime', category: 'lamp-shape',
+    name: 'つり目（斜めに上がるケース・左右ペア）',
     item: {
-      ...LAMP_BASE, name: '前照灯 LED ライン', w: 8, h: 1.6, copies: 2,
-      housing: housing({ enabled: true, color: '#111111', radius: 50 }),
-      lampShape: 'pill', lampAspect: 6, lampSize: 55, padding: 18, lamps: [makeLamp(LAMP_COLORS.led)],
+      ...LAMP_BASE, name: 'つり目の前照灯', w: 6.5, h: 3, pair: 'mirror', rotate: -12,
+      housing: housing({ shape: 'slant', topRatio: 70, color: '#111111', radius: 20 }),
+      rows: [lampRow({ lamps: [makeLamp(LAMP_COLORS.led), makeLamp(LAMP_COLORS.led)], shape: 'rect', aspect: 1.4, radius: 40, size: 62, distribute: 'left', gap: 25 })],
     },
   },
   {
-    id: 'lamp-tail2',
-    name: '尾灯: 丸 2 灯（赤）',
-    item: { ...LAMP_BASE, name: '尾灯 丸 2 灯', w: 5, h: 2.5, lamps: [makeLamp(LAMP_COLORS.tail), makeLamp(LAMP_COLORS.tail)] },
-  },
-  {
-    id: 'car-number',
+    id: 'car-number', category: 'text',
     name: '車番（文字シール）',
     item: { ...TEXT_BASE, name: '車番' },
   },
@@ -383,7 +496,8 @@ export function normalizeProject(raw) {
     const m = JSON.parse(JSON.stringify({ ...base, ...it }));
     if (it.type === 'lamp') {
       m.housing = { ...LAMP_BASE.housing, ...(it.housing || {}) };
-      m.lamps = Array.isArray(it.lamps) ? it.lamps.map(l => ({ ...makeLamp(), ...l })) : JSON.parse(JSON.stringify(LAMP_BASE.lamps));
+      m.rows = Array.isArray(it.rows) && it.rows.length ? it.rows.map(r => makeLampRow(r)) : lampRowsFromLegacy(it);
+      for (const k of ['lamps', 'lampShape', 'lampSize', 'lampAspect', 'lampRadius', 'lampStyle', 'ring', 'ringColor', 'arrange', 'distribute', 'gap']) delete m[k];
     }
     if (it.type === 'sign') {
       m.kind = { ...SIGN_BASE.kind, ...(it.kind || {}) };

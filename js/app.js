@@ -1,5 +1,5 @@
 // UI とアプリ状態
-import { PAPERS, FONTS, LED_SWATCHES, PRESETS, defaultProject, makeItem, itemLabel, paperById, defaultScaleK, scaleKFor, calibKey, usableArea, signIsBlank, fillOf, makeBand, makeLamp, LAMP_COLORS, sheetCount } from './model.js';
+import { PAPERS, FONTS, LED_SWATCHES, PRESETS, defaultProject, makeItem, itemLabel, paperById, defaultScaleK, scaleKFor, calibKey, usableArea, signIsBlank, fillOf, makeBand, makeLamp, makeLampRow, LAMP_COLORS, sheetCount, PRESET_CATEGORIES } from './model.js';
 import { layoutSheet, rulerLength } from './layout.js';
 import { renderSheet, renderItemThumb, fontsInUse, setImageLoadedCallback, getImage, getEditedImage } from './render.js';
 import { normalizeEdits, makeRecolor, detectBorderColor, colorAt, downscaleDataURL, hasEdits, opaqueRatio } from './imageedit.js';
@@ -20,9 +20,6 @@ const loadedFonts = new Set();
 function init() {
   const ps = $('paper-preset');
   for (const p of PAPERS) ps.add(new Option(p.name, p.id));
-  const ap = $('add-preset');
-  ap.add(new Option('プリセットから追加…', ''));
-  for (const p of PRESETS) ap.add(new Option(p.name, p.id));
 
   ps.addEventListener('change', () => {
     const p = paperById(ps.value);
@@ -73,10 +70,11 @@ function init() {
     const it = makeItem($('add-type').value);
     project.items.push(it); selectedId = it.id; update();
   });
-  ap.addEventListener('change', () => {
-    const p = PRESETS.find(x => x.id === ap.value);
-    if (p) { const it = makeItem(p.item.type, p.item); project.items.push(it); selectedId = it.id; update(); }
-    ap.value = '';
+  $('btn-preset').addEventListener('click', async () => {
+    await ensureFonts();
+    renderPresetDialog();
+    $('preset-dialog').showModal();
+    $('preset-list').querySelector('button')?.focus();
   });
 
   const showExport = (canvas, info) => {
@@ -339,6 +337,47 @@ function renderList() {
     });
     ul.appendChild(li);
   });
+}
+
+/** プリセットの選択画面: カテゴリごとに、サムネイル付きのボタンを並べる */
+function renderPresetDialog() {
+  const list = $('preset-list');
+  if (list.childElementCount) return;          // 一度作れば使い回す
+  const nav = $('preset-nav');
+  for (const cat of PRESET_CATEGORIES) {
+    const items = PRESETS.filter(p => p.category === cat.id);
+    if (!items.length) continue;
+    const secEl = document.createElement('section');
+    secEl.className = 'preset-cat'; secEl.id = 'preset-cat-' + cat.id;
+    const h = document.createElement('h3'); h.textContent = `${cat.name}（${items.length}）`; h.id = secEl.id + '-h';
+    secEl.setAttribute('aria-labelledby', h.id);
+    const grid = document.createElement('div'); grid.className = 'preset-grid';
+    for (const p of items) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'preset-card';
+      b.dataset.preset = p.id;
+      const th = document.createElement('canvas'); th.setAttribute('aria-hidden', 'true');
+      const it = makeItem(p.item.type, p.item);
+      renderItemThumb(th, it, Math.min(24, 110 / it.w, 56 / it.h) * 2);
+      const name = document.createElement('span'); name.textContent = p.name;
+      const sz = document.createElement('small');
+      sz.textContent = `${it.w}×${it.h} mm${it.type === 'lamp' && it.pair === 'mirror' ? '・左右ペア' : ''}`;
+      b.append(th, name, sz);
+      b.addEventListener('click', () => {
+        const ni = makeItem(p.item.type, p.item);
+        project.items.push(ni); selectedId = ni.id;
+        $('preset-dialog').close();
+        requestFocus('item:' + ni.id);
+        update();
+        toast(`「${p.name}」を追加しました`);
+      });
+      grid.appendChild(b);
+    }
+    secEl.append(h, grid);
+    list.appendChild(secEl);
+    const a = document.createElement('a'); a.href = '#' + secEl.id; a.textContent = cat.name;
+    a.addEventListener('click', e => { e.preventDefault(); secEl.scrollIntoView({ block: 'start' }); secEl.querySelector('button')?.focus({ preventScroll: true }); });
+    nav.appendChild(a);
+  }
 }
 
 function selectItem(id) {
@@ -772,58 +811,82 @@ function renderEditor() {
     pn.textContent = '前照灯と尾灯が並ぶ形のように左右で向きが逆になるときは、左右ペアにすると 1 組で鏡写しの 2 枚を並べます。';
     sp.appendChild(pn);
 
-    // ランプの一覧（色ごと）
-    const sl = sec('ランプ');
-    const quick = document.createElement('div'); quick.className = 'row lamp-quick';
-    const qlab = document.createElement('span'); qlab.className = 'note'; qlab.textContent = '色をまとめて:';
-    quick.appendChild(qlab);
-    for (const [label, col] of [['前照灯', LAMP_COLORS.head], ['LED', LAMP_COLORS.led], ['尾灯', LAMP_COLORS.tail], ['標識灯', LAMP_COLORS.marker]]) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small';
-      b.textContent = label; b.dataset.key = keyFor('まとめて:' + label);
-      b.setAttribute('aria-label', `すべてのランプを${label}の色にする`);
-      b.addEventListener('click', () => { it.lamps.forEach(l => { l.color = col; }); update(); });
-      quick.appendChild(b);
-    }
-    sl.appendChild(quick);
-    it.lamps.forEach((lamp, i) => {
-      const prev = section; section = `ランプ:${i + 1}`;
-      const box = document.createElement('div'); box.className = 'band';
-      const head = document.createElement('div'); head.className = 'band-head';
-      const ttl = document.createElement('span'); ttl.textContent = `ランプ ${i + 1}`;
-      const acts = document.createElement('span'); acts.className = 'band-actions';
-      const mk = (label, aria, fn, disabled) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small'; b.textContent = label; b.setAttribute('aria-label', aria); b.disabled = !!disabled; b.dataset.key = keyFor(aria); b.addEventListener('click', fn); return b; };
-      const n = it.lamps.length;
-      const word = it.arrange === 'column' ? ['上へ', '下へ'] : ['左へ', '右へ'];
-      acts.append(
-        mk(it.arrange === 'column' ? '↑' : '←', `ランプ ${i + 1} を${word[0]}`, () => { [it.lamps[i - 1], it.lamps[i]] = [it.lamps[i], it.lamps[i - 1]]; requestFocus(`${it.id}:ランプ:${i}:ランプ ${i} を${word[0]}`); update(); }, i === 0),
-        mk(it.arrange === 'column' ? '↓' : '→', `ランプ ${i + 1} を${word[1]}`, () => { [it.lamps[i + 1], it.lamps[i]] = [it.lamps[i], it.lamps[i + 1]]; requestFocus(`${it.id}:ランプ:${i + 2}:ランプ ${i + 2} を${word[1]}`); update(); }, i === n - 1),
-        mk('✕', `ランプ ${i + 1} を削除`, () => { it.lamps.splice(i, 1); requestFocus(`${it.id}:ランプ:追加`); update(); }, n <= 1),
-      );
-      head.append(ttl, acts); box.appendChild(head);
-      row(box, color('色', () => lamp.color, v => { lamp.color = v; }));
-      sl.appendChild(box);
-      section = prev;
-    });
-    const addL = document.createElement('button'); addL.type = 'button'; addL.className = 'btn small';
-    addL.textContent = '＋ ランプを追加'; addL.dataset.key = `${it.id}:ランプ:追加`;
-    addL.disabled = it.lamps.length >= 6;
-    addL.addEventListener('click', () => { it.lamps.push(makeLamp(it.lamps.at(-1)?.color || LAMP_COLORS.head)); requestFocus(`${it.id}:ランプ:${it.lamps.length}:色`); update(); });
-    sl.appendChild(addL);
+    // 段（上から順）。段ごとにランプの色・形・見た目・寄せ方を持つ
+    const QUICK = [['前照灯', LAMP_COLORS.head], ['LED', LAMP_COLORS.led], ['黄', LAMP_COLORS.amber], ['尾灯', LAMP_COLORS.tail], ['標識灯', LAMP_COLORS.marker]];
+    const nRows = it.rows.length;
+    it.rows.forEach((r, ri) => {
+      const rs = sec(nRows > 1 ? `段 ${ri + 1}（${ri === 0 ? '上' : ri === nRows - 1 ? '下' : '中'}）` : 'ランプ');
+      rs.classList.add('lamp-row');
+      const rowSection = section;
+      const mk = (label, aria, fn, disabled, cls = 'btn small') => { const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = label; b.setAttribute('aria-label', aria); b.disabled = !!disabled; b.dataset.key = keyFor(aria); b.addEventListener('click', fn); return b; };
+      if (nRows > 1) {
+        const ra = document.createElement('div'); ra.className = 'row lamp-row-actions';
+        ra.append(
+          mk('↑ 上へ', `段 ${ri + 1} を上へ`, () => { [it.rows[ri - 1], it.rows[ri]] = [it.rows[ri], it.rows[ri - 1]]; update(); }, ri === 0),
+          mk('↓ 下へ', `段 ${ri + 1} を下へ`, () => { [it.rows[ri + 1], it.rows[ri]] = [it.rows[ri], it.rows[ri + 1]]; update(); }, ri === nRows - 1),
+          mk('この段を削除', `段 ${ri + 1} を削除`, () => { it.rows.splice(ri, 1); requestFocus(`${it.id}:段:追加`); update(); }, false, 'btn small danger'),
+        );
+        rs.appendChild(ra);
+      }
+      const quick = document.createElement('div'); quick.className = 'row lamp-quick';
+      const qlab = document.createElement('span'); qlab.className = 'note'; qlab.textContent = '色をまとめて:';
+      quick.appendChild(qlab);
+      for (const [label, col] of QUICK) {
+        quick.appendChild(mk(label, `${nRows > 1 ? `段 ${ri + 1} の` : ''}すべてのランプを${label}の色にする`, () => { r.lamps.forEach(l => { l.color = col; }); update(); }));
+      }
+      rs.appendChild(quick);
+      r.lamps.forEach((lamp, i) => {
+        section = `${rowSection}:ランプ:${i + 1}`;
+        const box = document.createElement('div'); box.className = 'band';
+        const head = document.createElement('div'); head.className = 'band-head';
+        const ttl = document.createElement('span'); ttl.textContent = `ランプ ${i + 1}`;
+        const acts = document.createElement('span'); acts.className = 'band-actions';
+        const n = r.lamps.length;
+        acts.append(
+          mk('←', `ランプ ${i + 1} を左へ`, () => { [r.lamps[i - 1], r.lamps[i]] = [r.lamps[i], r.lamps[i - 1]]; requestFocus(`${it.id}:${rowSection}:ランプ:${i}:ランプ ${i} を左へ`); update(); }, i === 0),
+          mk('→', `ランプ ${i + 1} を右へ`, () => { [r.lamps[i + 1], r.lamps[i]] = [r.lamps[i], r.lamps[i + 1]]; requestFocus(`${it.id}:${rowSection}:ランプ:${i + 2}:ランプ ${i + 2} を右へ`); update(); }, i === n - 1),
+          mk('✕', `ランプ ${i + 1} を削除`, () => { r.lamps.splice(i, 1); requestFocus(`${it.id}:${rowSection}:ランプ:追加`); update(); }, n <= 1),
+        );
+        head.append(ttl, acts); box.appendChild(head);
+        row(box, color('色', () => lamp.color, v => { lamp.color = v; }));
+        rs.appendChild(box);
+      });
+      section = rowSection;
+      const addL = mk('＋ ランプを追加', 'ランプを追加', () => { r.lamps.push(makeLamp(r.lamps.at(-1)?.color || LAMP_COLORS.head)); requestFocus(`${it.id}:${rowSection}:ランプ:${r.lamps.length}:色`); update(); }, r.lamps.length >= 6);
+      addL.dataset.key = `${it.id}:${rowSection}:ランプ:追加`;
+      rs.appendChild(addL);
 
-    // 形と並べ方（全ランプ共通）
-    const sf = sec('ランプの形');
-    row(sf, field('形', sel([['round', '丸・楕円'], ['rect', '角型'], ['pill', '帯（両端が丸い）']], () => it.lampShape, v => { it.lampShape = v; })),
-      field('見た目', sel([['glow', '光って見える'], ['lens', 'レンズ風'], ['flat', 'ベタ塗り']], () => it.lampStyle, v => { it.lampStyle = v; })));
-    row(sf, field('大きさ %', num(() => it.lampSize, v => { it.lampSize = v; }, 1, 5)), field('横長さ（幅÷高さ）', num(() => it.lampAspect, v => { it.lampAspect = v; }, 0.1, 0.2)));
-    if (it.lampShape === 'rect') row(sf, field('角の丸み %', num(() => it.lampRadius, v => { it.lampRadius = v; }, 1, 0)));
-    row(sf, field('縁の太さ %（0 でなし）', num(() => it.ring, v => { it.ring = v; }, 1, 0)), color('縁の色', () => it.ringColor, v => { it.ringColor = v; }));
-    const sa = sec('並べ方');
-    row(sa, field('向き', sel([['row', '横に並べる'], ['column', '縦に並べる']], () => it.arrange, v => { it.arrange = v; })),
-      field('寄せ方', sel([['spread', '均等に広げる'], ['center', '中央に寄せる']], () => it.distribute, v => { it.distribute = v; })));
-    row(sa, field('間隔 %', num(() => it.gap, v => { it.gap = v; }, 1, 0)), field('内側の余白 %', num(() => it.padding, v => { it.padding = v; }, 1, 0)));
+      row(rs, field('形', sel([['round', '丸・楕円'], ['rect', '角型'], ['pill', '帯（両端が丸い）']], () => r.shape, v => { r.shape = v; })),
+        field('見た目', sel([['glow', '光って見える'], ['lens', 'レンズ風'], ['dots', 'LED の粒'], ['off', '消灯'], ['flat', 'ベタ塗り']], () => r.style, v => { r.style = v; })));
+      row(rs, field('大きさ %', num(() => r.size, v => { r.size = v; }, 1, 5)), field('横長さ（幅÷高さ）', num(() => r.aspect, v => { r.aspect = v; }, 0.1, 0.2)));
+      if (r.shape === 'rect') row(rs, field('角の丸み %', num(() => r.radius, v => { r.radius = v; }, 1, 0)));
+      if (r.style === 'dots') row(rs, field('粒の数（短い辺）', num(() => r.dots, v => { r.dots = Math.max(1, Math.min(12, Math.round(v))); }, 1, 1)));
+      row(rs, field('寄せ方', sel([['spread', '均等に広げる'], ['center', '中央に寄せる'], ['left', '左に寄せる'], ['right', '右に寄せる']], () => r.distribute, v => { r.distribute = v; })),
+        field('間隔 %', num(() => r.gap, v => { r.gap = v; }, 1, 0)));
+      row(rs, field('縁の太さ %（0 でなし）', num(() => r.ring, v => { r.ring = v; }, 1, 0)), color('縁の色', () => r.ringColor, v => { r.ringColor = v; }));
+      if (nRows > 1) row(rs, field('段の高さ（比率）', num(() => r.weight, v => { r.weight = Math.max(0.1, v); }, 0.1, 0.1)));
+    });
+    const sg = sec('段の追加');
+    const addRow = document.createElement('button'); addRow.type = 'button'; addRow.className = 'btn small';
+    addRow.textContent = '＋ 下に段を追加'; addRow.dataset.key = `${it.id}:段:追加`;
+    addRow.disabled = it.rows.length >= 4;
+    addRow.addEventListener('click', () => {
+      // 新しい段は、よく使う「尾灯ライン」から始める
+      it.rows.push(makeLampRow({ weight: 0.7, lamps: [makeLamp(LAMP_COLORS.tail)], shape: 'pill', aspect: 8, size: 70 }));
+      if (it.rows.length === 2) it.rows[0].weight = Math.max(it.rows[0].weight, 1.5);
+      requestFocus(`${it.id}:段 ${it.rows.length}（下）:ランプ:1:色`);
+      update();
+    });
+    sg.appendChild(addRow);
+    const gn = document.createElement('p'); gn.className = 'note';
+    gn.textContent = '2 灯の下に尾灯ラインがある形などは、段を分けて作ります。大きさは段の高さに対する割合で、入りきらないときは自動で縮めます。';
+    sg.appendChild(gn);
+
+    const sa = sec('全体の配置');
+    row(sa, field('段の間隔 %', num(() => it.rowGap ?? 12, v => { it.rowGap = v; }, 1, 0)), field('内側の余白 %', num(() => it.padding, v => { it.padding = v; }, 1, 0)));
     row(sa, field('全体の回転 °（− で左回り）', num(() => it.rotate || 0, v => { it.rotate = Math.max(-90, Math.min(90, v)); }, 1, -90)));
     const an = document.createElement('p'); an.className = 'note';
-    an.textContent = '大きさはケースの内側の高さ（縦に並べるときは幅）に対する割合です。入りきらないときは自動で縮めます。回転させるとシールに収まるように全体が小さくなります。';
+    an.textContent = '回転させると、シールに収まるように全体が小さくなります。';
     sa.appendChild(an);
 
     // ケース

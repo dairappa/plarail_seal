@@ -43,7 +43,7 @@ for (let i = 0; i < 250; i++) {
   order.push(f);
 }
 const idx = id => order.indexOf(id);
-const expected = ['#btn-new', '#btn-load', '#btn-save-project', '#btn-copy-project', '#btn-help', '#paper-preset', '#paper-w', '#print-mode', '#scale-k', '#gap', '#add-type', '#btn-add', '#add-preset', `item:${firstItemId}`, key('', '名前（任意）'), key('', '幅 mm'), '#zoom-out', '#btn-png', '#btn-print'];
+const expected = ['#btn-new', '#btn-load', '#btn-save-project', '#btn-copy-project', '#btn-help', '#paper-preset', '#paper-w', '#print-mode', '#scale-k', '#gap', '#add-type', '#btn-add', '#btn-preset', `item:${firstItemId}`, key('', '名前（任意）'), key('', '幅 mm'), '#zoom-out', '#btn-png', '#btn-print'];
 const missing = expected.filter(id => idx(id) < 0);
 c('主要な操作要素がすべて Tab で到達できる', missing.length === 0, missing.join(', '));
 const monotonic = expected.every((id, i) => i === 0 || idx(id) > idx(expected[i - 1]));
@@ -113,8 +113,7 @@ const col = await page.evaluate(() => window.__app.project.items[0].kind.color);
 c('Enter で見本の色が適用される', col === '#ff9a00' && (await focused()) === key('種別（左側）', '塗りつぶし色:sw1'), `color=${col}`);
 
 // ---------------------------------------------------------------- 6. 一覧のキーボード操作
-await page.selectOption('#add-preset', { index: 2 });
-await page.selectOption('#add-preset', { index: 3 });
+for (const k of [1, 2]) { await page.click('#btn-preset'); await page.locator('#preset-list .preset-card').nth(k).click(); }
 await page.waitForTimeout(50);
 const ids = await page.evaluate(() => window.__app.project.items.map(i => i.id));
 await page.focus(`[data-key="item:${ids[0]}"]`);
@@ -215,18 +214,28 @@ await page.waitForTimeout(100);
 let lampSt = await page.evaluate(id => ({ focus: document.activeElement.dataset.key, label: document.querySelector(`[data-key="${id}::組数"]`) ? '組数' : '枚数',
   meta: [...document.querySelectorAll('#item-list li')].at(-1).querySelector('.meta').textContent }), lampId);
 c('左右ペアにすると「枚数」が「組数」になり、一覧にも「組」と出て、フォーカスは残る', lampSt.focus === pairKey && lampSt.label === '組数' && /組/.test(lampSt.meta), JSON.stringify(lampSt));
-await page.click(`[data-key="${lampId}:ランプ:追加"]`);
+await page.click(`[data-key="${lampId}:ランプ:ランプ:追加"]`);
 await page.waitForTimeout(100);
-lampSt = await page.evaluate(id => ({ n: window.__app.project.items.find(i => i.id === id).lamps.length, focus: document.activeElement.dataset.key }), lampId);
-c('「ランプを追加」で 3 灯になり、追加したランプの色欄にフォーカスが移る', lampSt.n === 3 && lampSt.focus === `${lampId}:ランプ:3:色`, JSON.stringify(lampSt));
-await page.click(`[data-key="${lampId}:ランプ:まとめて:尾灯"]`);
+lampSt = await page.evaluate(id => ({ n: window.__app.project.items.find(i => i.id === id).rows[0].lamps.length, focus: document.activeElement.dataset.key }), lampId);
+c('「ランプを追加」で 3 灯になり、追加したランプの色欄にフォーカスが移る', lampSt.n === 3 && lampSt.focus === `${lampId}:ランプ:ランプ:3:色`, JSON.stringify(lampSt));
+await page.click(`[data-key="${lampId}:ランプ:すべてのランプを尾灯の色にする"]`);
 await page.waitForTimeout(100);
-lampSt = await page.evaluate(id => window.__app.project.items.find(i => i.id === id).lamps.map(l => l.color), lampId);
+lampSt = await page.evaluate(id => window.__app.project.items.find(i => i.id === id).rows[0].lamps.map(l => l.color), lampId);
 c('「色をまとめて: 尾灯」で全ランプが尾灯の色になる', lampSt.every(v => v === '#e4261c'), lampSt.join(','));
-await page.click(`[data-key="${lampId}:ランプ:1:ランプ 1 を削除"]`);
+await page.click(`[data-key="${lampId}:ランプ:ランプ:1:ランプ 1 を削除"]`);
 await page.waitForTimeout(100);
-lampSt = await page.evaluate(id => ({ n: window.__app.project.items.find(i => i.id === id).lamps.length, focus: document.activeElement.dataset.key }), lampId);
-c('ランプを削除すると「ランプを追加」にフォーカスが移る', lampSt.n === 2 && lampSt.focus === `${lampId}:ランプ:追加`, JSON.stringify(lampSt));
+lampSt = await page.evaluate(id => ({ n: window.__app.project.items.find(i => i.id === id).rows[0].lamps.length, focus: document.activeElement.dataset.key }), lampId);
+c('ランプを削除すると「ランプを追加」にフォーカスが移る', lampSt.n === 2 && lampSt.focus === `${lampId}:ランプ:ランプ:追加`, JSON.stringify(lampSt));
+
+// 段を追加・削除
+await page.click(`[data-key="${lampId}:段:追加"]`);
+await page.waitForTimeout(100);
+lampSt = await page.evaluate(id => ({ rows: window.__app.project.items.find(i => i.id === id).rows.map(r => r.lamps.length + ':' + r.shape), focus: document.activeElement.dataset.key }), lampId);
+c('「下に段を追加」で尾灯ラインの段が増え、その色欄にフォーカスが移る', lampSt.rows.length === 2 && lampSt.rows[1] === '1:pill' && lampSt.focus === `${lampId}:段 2（下）:ランプ:1:色`, JSON.stringify(lampSt));
+await page.click(`[data-key="${lampId}:段 2（下）:段 2 を削除"]`);
+await page.waitForTimeout(100);
+lampSt = await page.evaluate(id => ({ rows: window.__app.project.items.find(i => i.id === id).rows.length, focus: document.activeElement.dataset.key }), lampId);
+c('段を削除すると 1 段に戻り、「下に段を追加」にフォーカスが移る', lampSt.rows === 1 && lampSt.focus === `${lampId}:段:追加`, JSON.stringify(lampSt));
 
 const shapeKey = `${lampId}:ケース（台座）:形`;
 await page.focus(`[data-key="${shapeKey}"]`);
@@ -239,7 +248,7 @@ await page.waitForTimeout(100);
 lampSt = await page.evaluate(id => ({ skew: !!document.querySelector(`[data-key^="${id}:ケース（台座）:傾き"]`), lampSkew: !!document.querySelector(`[data-key="${id}:ケース（台座）:ランプも同じ角度で傾ける"]`),
   top: !!document.querySelector(`[data-key^="${id}:ケース（台座）:上辺の長さ"]`) }), lampId);
 c('平行四辺形にすると「傾き」と「ランプも傾ける」が出て、「上辺の長さ」は消える', lampSt.skew && lampSt.lampSkew && !lampSt.top, JSON.stringify(lampSt));
-const rotKey = await page.evaluate(id => document.querySelector(`[data-key^="${id}:並べ方:全体の回転"]`)?.dataset.key, lampId);
+const rotKey = await page.evaluate(id => document.querySelector(`[data-key^="${id}:全体の配置:全体の回転"]`)?.dataset.key, lampId);
 await page.focus(`[data-key="${rotKey}"]`);
 await page.keyboard.press('Control+A'); await page.keyboard.type('20'); await page.keyboard.press('Tab');
 await page.waitForTimeout(100);
@@ -250,6 +259,29 @@ const unnamedLamp2 = await page.evaluate(() => {
   return [...document.querySelectorAll('#editor input, #editor select, #editor button')].filter(el => el.getClientRects().length > 0 && !nameOf(el)).map(el => el.dataset.key || el.tagName);
 });
 c('形・傾き・回転の入力にもアクセシブルネームがある', unnamedLamp2.length === 0, unnamedLamp2.join(', '));
+
+// ---------------------------------------------------------------- 8c. プリセットの選択画面
+await page.focus('#btn-preset');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(100);
+let pd = await page.evaluate(() => ({ open: document.getElementById('preset-dialog').open, focus: document.activeElement.dataset.preset,
+  nav: document.querySelectorAll('#preset-nav a').length, unnamed: [...document.querySelectorAll('#preset-list button')].filter(b => !b.textContent.trim()).length,
+  headings: [...document.querySelectorAll('#preset-list h3')].map(h => h.textContent) }));
+c('「プリセットから選ぶ」で選択画面が開き、最初のプリセットにフォーカスが移る', pd.open && !!pd.focus, JSON.stringify(pd));
+c('プリセットはカテゴリの見出しごとに並び、カテゴリへ飛ぶリンクと名前がある', pd.nav === 6 && pd.headings.length === 6 && pd.unnamed === 0, pd.headings.join(' / '));
+await page.click('#preset-nav a:nth-child(3)');
+pd = await page.evaluate(() => document.activeElement.closest('section')?.id);
+c('カテゴリのリンクでその最初のプリセットにフォーカスが移る', pd === 'preset-cat-lamp-combo', pd);
+const before = await page.evaluate(() => window.__app.project.items.length);
+await page.keyboard.press('Enter');
+await page.waitForTimeout(150);
+pd = await page.evaluate(n => ({ added: window.__app.project.items.length - n, open: document.getElementById('preset-dialog').open, focus: document.activeElement.dataset.key,
+  last: 'item:' + window.__app.project.items.at(-1).id }), before);
+c('Enter で追加され、画面が閉じて、追加したシールにフォーカスが移る', pd.added === 1 && !pd.open && pd.focus === pd.last, JSON.stringify(pd));
+await page.click('#btn-preset');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(50);
+c('Escape で閉じると「プリセットから選ぶ」にフォーカスが戻る', (await focused()) === '#btn-preset');
 
 // ---------------------------------------------------------------- 9. 色補正ダイアログ
 await page.addScriptTag({ content: SIM_SRC });
