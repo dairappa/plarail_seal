@@ -100,10 +100,12 @@ npm run test:a11y  # アクセシビリティテストのみ
 
 公開 URL: https://dairappa.github.io/plarail_seal/
 
-`.github/workflows/pages.yml` が **既定ブランチ**への push のたびに自動デプロイします（ブランチ名は固定していないので、
-既定ブランチを `main` に変えてもそのまま動きます）。初回は `actions/configure-pages` が Pages を自動で有効化します。
-もし Actions が「Pages が有効になっていない」旨で失敗したら、リポジトリの Settings → Pages で
-**Source を「GitHub Actions」** にしてから、Actions タブの「Deploy to GitHub Pages」を Run workflow で再実行してください。
+`.github/workflows/pages.yml` が、既定ブランチ（`main`）への push のたびに自動デプロイします。
+ほかのブランチへの push でもワークフローは起動しますが、デプロイはスキップされます。
+作業はブランチで行い、`main` に取り込んだ時点で公開されます。
+
+リポジトリの Settings → Pages の **Source は「GitHub Actions」** にしておく必要があります。
+Actions タブの「Deploy to GitHub Pages」から、`main` を選んで手動で再実行することもできます。
 
 配信物は `scripts/build-dist.sh` が `dist/` に集めます（`index.html`, `css/`, `js/`, `.nojekyll`）。
 このとき CSS / JS の参照とモジュール間の import にコミット SHA のバージョン（`?v=xxxxxxxx`）を付けます。
