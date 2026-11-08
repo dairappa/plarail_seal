@@ -95,7 +95,10 @@
           </div>
           <label class="check"><input type="checkbox" id="cc-preview"> プレビューにも反映</label>
         </div>
-        <button id="btn-cc-setup" class="btn">色見本から補正を作る…</button>
+        <div class="row cc-panel-actions">
+          <button id="btn-cc-setup" class="btn">色見本から補正を作る…</button>
+          <button id="btn-cc-verify" class="btn" disabled>確認用の色見本（補正あり）</button>
+        </div>
       </div>
     </section>
 
@@ -254,13 +257,19 @@
             <figcaption>色見本での位置</figcaption>
           </figure>
         </div>
+        <div class="cc-v-sliders" role="group" aria-labelledby="cc-s-title">
+          <p id="cc-s-title" class="cc-s-title">大きくずれているときは、スライダーで一気に近づけてから候補で合わせます</p>
+          <div class="cc-s-row"><label for="cc-s-l" id="cc-s-l-label">明るさ</label><input type="range" id="cc-s-l" step="1"><output id="cc-s-l-out" for="cc-s-l"></output></div>
+          <div class="cc-s-row"><label for="cc-s-c" id="cc-s-c-label">鮮やかさ</label><input type="range" id="cc-s-c" step="1"><output id="cc-s-c-out" for="cc-s-c"></output></div>
+          <div class="cc-s-row"><label for="cc-s-h" id="cc-s-h-label">色合い</label><input type="range" id="cc-s-h" step="1"><output id="cc-s-h-out" for="cc-s-h"></output></div>
+        </div>
         <div class="row cc-actions">
           <button id="btn-cc-v-accept" class="btn small">このマスはこれで決定</button>
           <button id="btn-cc-v-back" class="btn small">前のマスに戻る</button>
           <button id="btn-cc-v-skip" class="btn small">このマスを飛ばす</button>
           <button id="btn-cc-v-restart" class="btn small danger">最初からやり直す</button>
         </div>
-        <p class="note">印刷に一番近いマスを押すと、その色を中心にした候補に変わります。真ん中を押すと、より細かい候補に進みます。矢印キーで候補を移動し、Enter で選べます。</p>
+        <p class="note">印刷に一番近いマスを押すと、その色を中心にした候補に変わります。同じ向きを続けて押すと候補の幅が広がり、真ん中を押すと細かくなります。矢印キーで候補を移動し、Enter で選べます。</p>
       </section>
     </div>
 

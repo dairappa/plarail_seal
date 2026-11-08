@@ -319,7 +319,17 @@ c('↑ で上（明るい）の候補に移る', /明るい/.test(fl), fl);
 await page.keyboard.press('ArrowDown');
 await page.keyboard.press('Enter');     // 真ん中 = いまの色が一番近い → 細かい段階へ
 vs = await page.evaluate(() => ({ prog: document.getElementById('cc-v-progress').textContent, focus: document.activeElement.getAttribute('aria-label') }));
-c('真ん中を Enter で選ぶと細かい段階に進み、フォーカスは真ん中に残る', /細かさ 2 \/ 3/.test(vs.prog) && /真ん中/.test(vs.focus), JSON.stringify(vs));
+c('真ん中を Enter で選ぶと候補の幅が細かくなり、フォーカスは真ん中に残る', /候補の幅: 中くらい/.test(vs.prog) && /真ん中/.test(vs.focus), JSON.stringify(vs));
+// スライダー: 名前と読み上げ値があり、動かすと候補の真ん中の色が変わる
+const sl = await page.evaluate(() => ['l', 'c', 'h'].map(id => { const el = document.getElementById('cc-s-' + id);
+  return { label: document.querySelector(`label[for="cc-s-${id}"]`)?.textContent, valuetext: el.getAttribute('aria-valuetext'), disabled: el.disabled }; }));
+c('スライダー 3 本に名前と読み上げ用の値がある', sl.every(x => x.label && x.valuetext && !x.disabled), JSON.stringify(sl));
+const centerBefore = await page.evaluate(() => document.querySelector('#cc-v-grid button.center').style.background);
+await page.focus('#cc-s-l');
+for (let i = 0; i < 15; i++) await page.keyboard.press('ArrowLeft');
+await page.waitForTimeout(50);
+const centerAfter = await page.evaluate(() => ({ bg: document.querySelector('#cc-v-grid button.center').style.background, focus: document.activeElement.id, prog: document.getElementById('cc-v-progress').textContent }));
+c('明るさのスライダーを ← で動かすと真ん中の色が暗くなり、フォーカスはスライダーに残る', centerAfter.bg !== centerBefore && centerAfter.focus === 'cc-s-l', JSON.stringify({ centerBefore, ...centerAfter }));
 await page.click('#btn-cc-v-restart');
 // 12 マスを人の代わりに選ぶ（一番近い候補。差がわずかなら真ん中）
 const vres = await page.evaluate(async () => {

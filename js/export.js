@@ -39,6 +39,8 @@ export function exportFileName(project, ext) {
   return `plarail_seal_${project.paper.preset}_${project.dpi}dpi${k}${c}.${ext}`;
 }
 
+export async function savePNGCanvas(canvas, dpi, name) { return savePNG(canvas, dpi, name); }
+
 async function savePNG(canvas, dpi, name) {
   const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
   const buf = new Uint8Array(await blob.arrayBuffer());

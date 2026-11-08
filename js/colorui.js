@@ -1,7 +1,8 @@
 // 色補正の画面: 用紙欄の設定と、色見本の写真からプロファイルを作るダイアログ
 import { samplePatches, fitProfile, snapToMarker, quadIsValid, homographyFromUnitSquare, patchRect, CHART_PATCHES, rgbToHex,
-  VISUAL_PATCHES, visualStart, visualGrid, visualPick, visualSamples, visualAxisLabels, VISUAL_STAGES } from './colorcal.js';
-import { exportChartPNG, chartCanvas } from './export.js';
+  VISUAL_PATCHES, visualStart, visualGrid, visualPick, visualSamples, visualAxisLabels, visualFineness,
+  visualSliderSpec, visualFromSliders, visualToSliders, visualSetCenter, applyProfileToCanvas } from './colorcal.js';
+import { exportChartPNG, chartCanvas, savePNGCanvas } from './export.js';
 import { paperById } from './model.js';
 
 const $ = id => document.getElementById(id);
@@ -90,6 +91,28 @@ export function initColorUI(api) {
   for (const [id, mode] of [['cc-mode-visual', 'visual'], ['cc-mode-photo', 'photo']]) {
     $(id).addEventListener('click', () => { cal.mode = mode; renderDialog(); });
   }
+
+  // スライダー: 動かしている間は候補の中心をその色にする
+  for (const id of ['l', 'c', 'h']) {
+    $('cc-s-' + id).addEventListener('input', () => {
+      const v = cal.v;
+      if (v.finished) return;
+      const vals = { l: Number($('cc-s-l').value), c: Number($('cc-s-c').value), h: Number($('cc-s-h').value) };
+      v.st = visualSetCenter(v.st, visualFromSliders(v.st.target, vals));
+      renderVisual(true);
+    });
+  }
+
+  // 確認用の色見本: 今の補正をかけて保存する。印刷して元の色見本と見比べる
+  $('btn-cc-verify').addEventListener('click', async () => {
+    const p = app.getProject();
+    if (!p.colorCorr.profile) return;
+    await app.ensureFonts();
+    const canvas = chartCanvas(p, 300);
+    applyProfileToCanvas(canvas, p.colorCorr.profile, (p.colorCorr.strength ?? 100) / 100);
+    await savePNGCanvas(canvas, 300, `plarail_seal_colorchart_${p.paper.preset}_corrected.png`);
+    app.showExport(canvas, `補正をかけた色見本（${p.colorCorr.strength}%）。補正なしの色見本と同じ方法で印刷し、画面の色に近づいたか見比べてください。`);
+  });
 
   // 目で合わせる
   $('btn-cc-v-accept').addEventListener('click', () => { if (!cal.v.finished) { decideVisual(cal.v.st.center); focusVisual(); } });
@@ -218,7 +241,7 @@ function focusVisual() {
   $('cc-v-grid').querySelector('button[tabindex="0"]')?.focus();
 }
 
-function renderVisual() {
+function renderVisual(fromSlider = false) {
   const v = cal.v;
   const total = VISUAL_PATCHES.length;
   const grid = $('cc-v-grid');
@@ -236,6 +259,7 @@ function renderVisual() {
   for (const id of ['btn-cc-v-accept', 'btn-cc-v-skip']) $(id).disabled = v.finished;
   $('btn-cc-v-back').disabled = !v.finished && v.i === 0;
 
+  for (const id of ['l', 'c', 'h']) $('cc-s-' + id).disabled = v.finished;
   if (v.finished) {
     $('cc-v-progress').innerHTML = `${total} マスのうち <b>${done}</b> マスを選び終わりました。`;
     map.setAttribute('aria-label', '色見本の 48 マス。目で合わせるマスはすべて終わりました');
@@ -245,9 +269,23 @@ function renderVisual() {
   }
   grid.hidden = false;
   const no = v.st.index + 1;
-  $('cc-v-progress').innerHTML = `印刷の <b>${no}</b> 番のマスに一番近い色を選んでください（${v.i + 1} / ${total} マス目、細かさ ${v.st.stage + 1} / ${VISUAL_STAGES.length}）`;
+  const fine = ['粗い', '中くらい', '細かい'][visualFineness(v.st) - 1];
+  $('cc-v-progress').innerHTML = `印刷の <b>${no}</b> 番のマスに一番近い色を選んでください（${v.i + 1} / ${total} マス目、候補の幅: ${fine}）`;
+  // スライダー（動かしている最中は値を書き戻さない）
+  const spec = visualSliderSpec(v.st.target);
+  const sv = visualToSliders(v.st.target, v.st.center);
+  spec.forEach(sp => {
+    const el = $('cc-s-' + sp.id);
+    $(`cc-s-${sp.id}-label`).textContent = sp.label;
+    el.min = sp.min; el.max = sp.max;
+    if (!fromSlider) el.value = Math.round(Math.max(sp.min, Math.min(sp.max, sv[sp.id])));
+    const shown = Number(el.value);
+    const txt = sp.id === 'c' && sp.unit === '%' ? `${shown}%` : `${shown > 0 ? '+' : ''}${shown}${sp.unit}`;
+    $(`cc-s-${sp.id}-out`).textContent = txt;
+    el.setAttribute('aria-valuetext', `${sp.label} ${txt}`);
+  });
   map.setAttribute('aria-label', `色見本の 48 マス。いまは ${no} 番（左から ${v.st.index % 6 + 1} 列目、上から ${Math.floor(v.st.index / 6) + 1} 行目）`);
-  const labels = visualAxisLabels(v.st.target, v.st.stage);
+  const labels = visualAxisLabels(v.st.target, v.st.axis);
   labels.cols.forEach((t, c) => { $('cc-v-col' + c).textContent = t; });
   const colors = visualGrid(v.st);
   const btns = colors.map((rgb, k) => {
@@ -297,14 +335,17 @@ function renderResult() {
     : r.after < r.before * 0.6 ? '<span class="cc-good">補正でかなり近づけられます。</span>'
     : visual ? '<span class="cc-bad">補正の効果は限定的です。選び方に迷ったマスがあれば、戻って選び直してみてください。</span>'
     : '<span class="cc-bad">補正の効果は限定的です。写真の撮り方（影・反射・色かぶり）を見直すと改善することがあります。</span>';
-  $('cc-result').innerHTML = `印刷のずれ（平均 ΔE）は <b>${r.before}</b>、補正後の推定は <b>${r.after}</b> です。${verdict}`;
+  const outN = (r.outOfGamut || []).length;
+  const outTxt = outN ? ` シール紙では出せない色（鮮やかすぎる色や真っ黒など）が ${outN} 色ありました（点線の枠）。これらは補正しても、出せる範囲で一番近い色までしか近づきません。` : '';
+  $('cc-result').innerHTML = `印刷で出せる色のずれ（平均 ΔE）は <b>${r.before}</b>、補正後の推定は <b>${r.after}</b> です。${verdict}${outTxt}`;
   const sw = $('cc-swatches');
   sw.innerHTML = '';
   // 目で合わせた場合、白と黒は仮定なので表示しない
   const shown = visual ? r.samples.filter(x => !(x.target.every(v => v === 255) || x.target.every(v => v === 0))) : r.samples;
   shown.forEach(x => {
     const cell = document.createElement('span');
-    cell.title = `意図 ${rgbToHex(x.target)} → 印刷 ${rgbToHex(x.meas)}`;
+    cell.title = `意図 ${rgbToHex(x.target)} → 印刷 ${rgbToHex(x.meas)}${x.out ? '（シール紙では出せない色）' : ''}`;
+    if (x.out) cell.classList.add('out');
     const a = document.createElement('i'); a.style.background = rgbToHex(x.target);
     const b = document.createElement('i'); b.style.background = rgbToHex(x.meas);
     cell.append(a, b); sw.appendChild(cell);
@@ -373,6 +414,7 @@ export function syncColorPanel(project) {
   $('cc-strength').disabled = !pr;
   $('cc-preview').checked = !!cc.preview;
   $('cc-preview').disabled = !pr;
+  $('btn-cc-verify').disabled = !pr;
   let t;
   if (!pr) t = 'まだ補正はありません。色見本を印刷し、その写真から補正を作ります。';
   else {

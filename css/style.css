@@ -245,3 +245,12 @@ dialog form { text-align: right; margin-top: 12px; }
 .preset-card span { font-size: 12px; line-height: 1.4; }
 .preset-card small { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .lamp-row-actions { flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+
+/* 目で合わせる: スライダー */
+.cc-v-sliders { margin: 10px 0 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); max-width: 520px; }
+.cc-s-title { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+.cc-s-row { display: grid; grid-template-columns: 7.5em 1fr 4.5em; gap: 8px; align-items: center; margin: 4px 0; font-size: 13px; }
+.cc-s-row input[type=range] { width: 100%; accent-color: var(--accent); }
+.cc-s-row output { font-variant-numeric: tabular-nums; text-align: right; color: var(--muted); }
+.cc-panel-actions { flex-wrap: wrap; gap: 6px; }
+.cc-swatches span.out { outline: 2px dashed var(--warn); outline-offset: 1px; }

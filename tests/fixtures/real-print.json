@@ -1,0 +1,245 @@
+{
+ "description": "コンビニのシール紙（L判）に印刷した色見本 48 マスを、写真から読み取った実測値（紙の白で正規化）。tests/smoke.mjs の色補正テストで使う",
+ "patches": [
+  {
+   "no": 1,
+   "target": "#ffffff",
+   "printed": "#ffffff"
+  },
+  {
+   "no": 2,
+   "target": "#e8e8e8",
+   "printed": "#f3f0f1"
+  },
+  {
+   "no": 3,
+   "target": "#d1d1d1",
+   "printed": "#e2e1dd"
+  },
+  {
+   "no": 4,
+   "target": "#b9b9b9",
+   "printed": "#d5d0cc"
+  },
+  {
+   "no": 5,
+   "target": "#a2a2a2",
+   "printed": "#c4bdb8"
+  },
+  {
+   "no": 6,
+   "target": "#8b8b8b",
+   "printed": "#aea89e"
+  },
+  {
+   "no": 7,
+   "target": "#747474",
+   "printed": "#817a72"
+  },
+  {
+   "no": 8,
+   "target": "#5d5d5d",
+   "printed": "#625b51"
+  },
+  {
+   "no": 9,
+   "target": "#464646",
+   "printed": "#3c362f"
+  },
+  {
+   "no": 10,
+   "target": "#2e2e2e",
+   "printed": "#2a2620"
+  },
+  {
+   "no": 11,
+   "target": "#171717",
+   "printed": "#251f19"
+  },
+  {
+   "no": 12,
+   "target": "#000000",
+   "printed": "#271e17"
+  },
+  {
+   "no": 13,
+   "target": "#000080",
+   "printed": "#182b70"
+  },
+  {
+   "no": 14,
+   "target": "#0000ff",
+   "printed": "#0c389a"
+  },
+  {
+   "no": 15,
+   "target": "#008000",
+   "printed": "#005400"
+  },
+  {
+   "no": 16,
+   "target": "#008080",
+   "printed": "#197490"
+  },
+  {
+   "no": 17,
+   "target": "#0080ff",
+   "printed": "#0093da"
+  },
+  {
+   "no": 18,
+   "target": "#00ff00",
+   "printed": "#2c9100"
+  },
+  {
+   "no": 19,
+   "target": "#00ff80",
+   "printed": "#00918f"
+  },
+  {
+   "no": 20,
+   "target": "#00ffff",
+   "printed": "#49c1ed"
+  },
+  {
+   "no": 21,
+   "target": "#800000",
+   "printed": "#6b200e"
+  },
+  {
+   "no": 22,
+   "target": "#800080",
+   "printed": "#5a2c5e"
+  },
+  {
+   "no": 23,
+   "target": "#8000ff",
+   "printed": "#42428f"
+  },
+  {
+   "no": 24,
+   "target": "#808000",
+   "printed": "#676500"
+  },
+  {
+   "no": 25,
+   "target": "#8080ff",
+   "printed": "#789ed5"
+  },
+  {
+   "no": 26,
+   "target": "#80ff00",
+   "printed": "#788d00"
+  },
+  {
+   "no": 27,
+   "target": "#80ff80",
+   "printed": "#a7c870"
+  },
+  {
+   "no": 28,
+   "target": "#80ffff",
+   "printed": "#bee6e6"
+  },
+  {
+   "no": 29,
+   "target": "#ff0000",
+   "printed": "#cc1b00"
+  },
+  {
+   "no": 30,
+   "target": "#ff0080",
+   "printed": "#d4221c"
+  },
+  {
+   "no": 31,
+   "target": "#ff00ff",
+   "printed": "#ba3a7e"
+  },
+  {
+   "no": 32,
+   "target": "#ff8000",
+   "printed": "#eb8300"
+  },
+  {
+   "no": 33,
+   "target": "#ff8080",
+   "printed": "#e28c5e"
+  },
+  {
+   "no": 34,
+   "target": "#ff80ff",
+   "printed": "#da81a4"
+  },
+  {
+   "no": 35,
+   "target": "#ffff00",
+   "printed": "#ecbc07"
+  },
+  {
+   "no": 36,
+   "target": "#ffff80",
+   "printed": "#fddf08"
+  },
+  {
+   "no": 37,
+   "target": "#ffe600",
+   "printed": "#f2b700"
+  },
+  {
+   "no": 38,
+   "target": "#ff9a00",
+   "printed": "#ed9000"
+  },
+  {
+   "no": 39,
+   "target": "#ff2d2d",
+   "printed": "#cd3200"
+  },
+  {
+   "no": 40,
+   "target": "#2ee05a",
+   "printed": "#338835"
+  },
+  {
+   "no": 41,
+   "target": "#3b8dff",
+   "printed": "#1296cb"
+  },
+  {
+   "no": 42,
+   "target": "#00d5d5",
+   "printed": "#26a3c8"
+  },
+  {
+   "no": 43,
+   "target": "#2f4fd0",
+   "printed": "#396fae"
+  },
+  {
+   "no": 44,
+   "target": "#c8102e",
+   "printed": "#b12506"
+  },
+  {
+   "no": 45,
+   "target": "#1d3f8f",
+   "printed": "#244684"
+  },
+  {
+   "no": 46,
+   "target": "#f08a1a",
+   "printed": "#ed8d00"
+  },
+  {
+   "no": 47,
+   "target": "#3a4790",
+   "printed": "#475e8a"
+  },
+  {
+   "no": 48,
+   "target": "#7fb2ff",
+   "printed": "#88bedc"
+  }
+ ]
+}

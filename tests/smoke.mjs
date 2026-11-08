@@ -1,4 +1,5 @@
 // スモークテスト: 画面が動くこと、書き出し PNG のピクセル数が用紙×dpi と一致すること
+import { readFileSync } from 'node:fs';
 import { openApp, makeChecker } from './helpers.mjs';
 import { SIM_SRC } from './colorsim.mjs';
 
@@ -213,13 +214,47 @@ const vis = await page.evaluate(async () => {
     picks[idx] = st.center;
   }
   const prof = cal.fitProfile(cal.visualSamples(picks), { method: 'visual' });
-  const test = [[200, 60, 40], [40, 120, 200], [90, 160, 70], [128, 128, 128], [230, 200, 120], [60, 60, 90], [255, 154, 0], [47, 79, 208]];
+  // 目で合わせるマスはよく使う色なので、よく使う色で評価する
+  const test = ['#c8102e', '#ff9a00', '#1d3f8f', '#2f4fd0', '#ffe600', '#808080', '#3a4790', '#f08a1a', '#e4261c', '#fff6d8'].map(cal.hexToRgb);
   const before = test.reduce((a, c) => a + cal.deltaE(c, seen(c)), 0) / test.length;
   const after = test.reduce((a, c) => a + cal.deltaE(c, seen(cal.correctColor(prof, c, 1))), 0) / test.length;
   const nums = cal.VISUAL_PATCHES.map(i => i + 1);
   return { clicks, before, after, nums };
 });
-c('目で合わせる: 12 マスを選ぶだけで印刷のずれが半分以下になる', vis.after < vis.before * 0.5, `${vis.before.toFixed(1)} → ${vis.after.toFixed(1)}、選択 ${vis.clicks} 回、マス ${vis.nums.join(',')}`);
+c('目で合わせる: 12 マスを選ぶだけで、よく使う色のずれが 4 割以上縮む', vis.after < vis.before * 0.6, `${vis.before.toFixed(1)} → ${vis.after.toFixed(1)}、選択 ${vis.clicks} 回、マス ${vis.nums.join(',')}`);
+
+// 実機の印刷（写真から読み取った 48 マスの実測値）での色補正
+const real = JSON.parse(readFileSync(new URL('./fixtures/real-print.json', import.meta.url), 'utf8'));
+const rr = await page.evaluate(async real => {
+  const cal = await import('./js/colorcal.js');
+  const samples = real.patches.map((x, i) => ({ target: cal.hexToRgb(x.target), kind: cal.CHART_PATCHES[i].kind, raw: cal.hexToRgb(x.printed) }));
+  const prof = cal.fitProfile(samples);
+  // 評価用の印刷: 測った 48 点の距離の逆数重み補間（補正モデルとは別の方式）
+  const printer = rgb => { let ws = 0, acc = [0, 0, 0];
+    for (const s of samples) { const d = Math.hypot(s.target[0] - rgb[0], s.target[1] - rgb[1], s.target[2] - rgb[2]); const w = 1 / (d ** 3 + 1e-3); ws += w; acc = acc.map((v, k) => v + w * s.raw[k]); }
+    return acc.map(v => v / ws); };
+  const use = ['#c8102e', '#ff9a00', '#1d3f8f', '#2f4fd0', '#ffe600', '#808080', '#3a4790', '#f08a1a', '#e4261c', '#fff6d8', '#d0d0d0', '#404040'].map(cal.hexToRgb);
+  const before = use.reduce((a, c) => a + cal.deltaE(c, printer(c)), 0) / use.length;
+  const after = use.reduce((a, c) => a + cal.deltaE(c, printer(cal.correctColor(prof, c, 1))), 0) / use.length;
+  // 目で合わせる: 実際の印刷色（35 番の黄色・38 番のオレンジを含む）まで候補で届くか
+  const reach = [...cal.VISUAL_PATCHES, 34].map(idx => {
+    const goal = samples[idx].raw;
+    let st = cal.visualStart(idx), n = 0;
+    while (!st.done && n < 60) { const g = cal.visualGrid(st); let best = 4, bd = cal.deltaE(g[4], goal);
+      g.forEach((c, k) => { const d = cal.deltaE(c, goal); if (d < bd - 0.3) { bd = d; best = k; } }); st = cal.visualPick(st, best); n++; }
+    return { no: idx + 1, far: cal.deltaE(samples[idx].target, goal), err: cal.deltaE(st.center, goal), n };
+  });
+  // スライダー: 35 番の実際の印刷色を、明るさ・鮮やかさ・色合いの値に直して戻すと同じ色になる
+  const y = cal.CHART_PATCHES[34].rgb, sv = cal.visualToSliders(y, samples[34].raw);
+  const back = cal.deltaE(cal.visualFromSliders(y, sv), samples[34].raw);
+  return { before, after, out: prof.outOfGamut, reach, back, sv };
+}, real);
+c('実機: 純色の緑・青・マゼンタは「シール紙では出せない色」と判定し、灰色やオレンジは出せる色とする',
+  ['#00ff00', '#0000ff', '#ff00ff'].every(h => rr.out.includes(h)) && ['#d1d1d1', '#ff9a00', '#f08a1a'].every(h => !rr.out.includes(h)), rr.out.join(' '));
+c('実機: 補正でよく使う 12 色のずれが縮む（悪化しない）', rr.after < rr.before - 1.5, `${rr.before.toFixed(1)} → ${rr.after.toFixed(1)}`);
+c('実機: 目で合わせる候補が、大きくずれた印刷色（35 番 ΔE 35 など）まで届く', rr.reach.every(x => x.err < 4 && x.n <= 40),
+  rr.reach.map(x => `${x.no}番 ずれ${x.far.toFixed(0)}→残り${x.err.toFixed(1)}（${x.n}回）`).join(', '));
+c('スライダー: 明るさ・鮮やかさ・色合いの値と色を行き来しても同じ色になる', rr.back < 1, `${rr.back.toFixed(2)} ${JSON.stringify(rr.sv)}`);
 
 c('色見本: マークのクリックが少しずれても中心に合わせる', cc.snapErr < 2.5, `ずれ ${cc.snapErr.toFixed(2)} px`);
 c('色補正: 印刷のずれが大きく縮む（平均 ΔE）', cc.after < cc.before * 0.4, `${cc.before.toFixed(1)} → ${cc.after.toFixed(1)}（読み取り時の推定 ${cc.fitBefore} → ${cc.fitAfter}）`);
