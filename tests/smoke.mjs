@@ -1,5 +1,6 @@
 // スモークテスト: 画面が動くこと、書き出し PNG のピクセル数が用紙×dpi と一致すること
 import { openApp, makeChecker } from './helpers.mjs';
+import { SIM_SRC } from './colorsim.mjs';
 
 const { page, errors, close } = await openApp();
 
@@ -150,6 +151,48 @@ c('色の置き換え: 赤だけが緑になり、青と白はそのまま', img
 c('単色化: 不透明な部分がすべて黒', imgRes.monoRed.slice(0, 3).every(v => v < 5) && imgRes.monoBlue.slice(0, 3).every(v => v < 5));
 c('余白の切り詰め: 赤い四角の大きさになる', imgRes.trimSize[0] === 60 && imgRes.trimSize[1] === 40, imgRes.trimSize.join('x'));
 c('書き出し: 透明にした部分にシールの地色が出て、ロゴは残る', imgRes.exportCorner[0] > 240 && imgRes.exportCorner[1] < 15 && imgRes.exportCorner[2] > 240 && imgRes.exportRed[0] > 240 && imgRes.exportRed[1] < 15, JSON.stringify([imgRes.exportCorner, imgRes.exportRed]));
+
+// 色補正: 色見本を「印刷 → 撮影」した写真から補正を作り、ずれが縮むか
+await page.addScriptTag({ content: SIM_SRC });
+const cc = await page.evaluate(async () => {
+  const cal = await import('./js/colorcal.js');
+  const ex = await import('./js/export.js');
+  const app = window.__app, p = app.project;
+  const chart = ex.chartCanvas(p, 150);
+  // マーク中心（色見本キャンバスの px）
+  const s = 150 / 25.4, k = p.scaleK / 100, W = p.paper.w, H = p.paper.h;
+  const area = app.layout().area, f = cal.chartFrame(area);
+  const toPx = (u, v) => { const x = (f.x + u * f.w) * s, y = (f.y + v * f.h) * s; return [W * s / 2 + (x - W * s / 2) * k, H * s / 2 + (y - H * s / 2) * k]; };
+  const markers = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => toPx(u, v));
+  const { photo, pts } = window.__sim.shoot(chart, markers);
+  const img = photo.getContext('2d').getImageData(0, 0, photo.width, photo.height);
+  // クリックが少しずれても、マークの中心に寄せられるか
+  const off = pts.map(([x, y]) => cal.snapToMarker(img, x + 7, y - 5, Math.hypot(photo.width, photo.height) * 0.03));
+  const snapErr = Math.max(...off.map((q, i) => Math.hypot(q[0] - pts[i][0], q[1] - pts[i][1])));
+  const prof = cal.fitProfile(cal.samplePatches(img, off));
+  // 評価: 補正前後で「印刷して見える色」（紙の白で正規化）と意図した色の差
+  const seen = rgb => { const w = window.__sim.printer([255, 255, 255]); return window.__sim.printer(rgb).map((v, i) => Math.min(255, v * 255 / w[i])); };
+  const test = [[200, 60, 40], [40, 120, 200], [90, 160, 70], [128, 128, 128], [230, 200, 120], [60, 60, 90], [255, 154, 0], [47, 79, 208]];
+  const before = test.reduce((a, c) => a + cal.deltaE(c, seen(c)), 0) / test.length;
+  const after = test.reduce((a, c) => a + cal.deltaE(c, seen(cal.correctColor(prof, c, 1))), 0) / test.length;
+  // 純白は変えない・書き出しに反映される
+  const white = cal.correctColor(prof, [255, 255, 255], 1);
+  const saved = JSON.stringify(p);
+  p.colorCorr = { enabled: true, strength: 100, preview: false, profile: prof };
+  p.items = [{ id: 'cc', type: 'text', w: 20, h: 8, copies: 1, text: '', font: 'Noto Sans JP', weight: 700, padding: 0,
+    bg: '#c8102e', fill: { mode: 'solid', bands: [{ weight: 1, color: '#c8102e' }] } }];
+  p.marks = 'none'; p.ruler = false; p.dpi = 300; app.update(); app.flush();
+  const l = app.layout(), q = l.placed[0], S = 300 / 25.4;
+  const pick = c => [...c.getContext('2d').getImageData(Math.round((q.x + 10) * S), Math.round((q.y + 4) * S), 1, 1).data].slice(0, 3);
+  const corr = pick(app.exportCanvas()), raw = pick(app.exportCanvas({ correct: false }));
+  const paperCorner = [...app.exportCanvas().getContext('2d').getImageData(2, 2, 1, 1).data].slice(0, 3);
+  app.project = JSON.parse(saved);
+  return { snapErr, before, after, fitBefore: prof.before, fitAfter: prof.after, white, corr, raw, paperCorner };
+});
+c('色見本: マークのクリックが少しずれても中心に合わせる', cc.snapErr < 2.5, `ずれ ${cc.snapErr.toFixed(2)} px`);
+c('色補正: 印刷のずれが大きく縮む（平均 ΔE）', cc.after < cc.before * 0.4, `${cc.before.toFixed(1)} → ${cc.after.toFixed(1)}（読み取り時の推定 ${cc.fitBefore} → ${cc.fitAfter}）`);
+c('色補正: 純白（紙の色）は変えない', cc.white.every(v => v >= 254.5), JSON.stringify(cc.white));
+c('色補正: 書き出しにかかり、補正なしの書き出しとは色が変わる', cc.corr.some((v, i) => Math.abs(v - cc.raw[i]) > 8) && cc.paperCorner.every(v => v === 255), JSON.stringify(cc));
 
 // localStorage 保存 → 再読み込みで復元
 await page.waitForTimeout(500);

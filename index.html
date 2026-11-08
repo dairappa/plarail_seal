@@ -83,6 +83,20 @@
         </div>
         <p class="note" id="calib-preview"></p>
       </details>
+
+      <div class="color-corr">
+        <h3 class="sub">色補正</h3>
+        <p class="note" id="cc-status"></p>
+        <label class="check"><input type="checkbox" id="cc-enabled"> 書き出しに色補正をかける</label>
+        <div class="row">
+          <div class="field">
+            <label for="cc-strength">補正の強さ %</label>
+            <input type="number" id="cc-strength" min="0" max="100" step="5">
+          </div>
+          <label class="check"><input type="checkbox" id="cc-preview"> プレビューにも反映</label>
+        </div>
+        <button id="btn-cc-setup" class="btn">色見本から補正を作る…</button>
+      </div>
     </section>
 
     <section class="card">
@@ -172,6 +186,12 @@
       <li>「フチあり」で印刷すると全体が約 3.5〜4% 縮小されるため、このアプリは書き出し時にあらかじめ拡大しています（L判 103.6% は実機での実測値）。
         機体差もあるので、初回は「ものさし」を入れて試し刷りし、実測値からサイズ補正を求めると確実です。</li>
     </ol>
+    <h3>色が思ったとおりに出ないとき</h3>
+    <ol>
+      <li>「用紙と印刷方法」の「色見本から補正を作る」を開き、色見本シートを保存して、シールと同じ方法で印刷します。</li>
+      <li>印刷した色見本をスキャンするか真上から撮影して取り込み、4 隅のマークを 1 → 4 の順にクリックします。</li>
+      <li>「この補正を使う」を押すと、以後の書き出しに色補正がかかります。強さは後から変えられます。</li>
+    </ol>
     <h3>家庭用プリンタ / A4 シール台紙で印刷する</h3>
     <ol>
       <li>用紙で A4（または台紙の実寸）を選び、印刷方法を「家庭用プリンタ」にします。</li>
@@ -184,6 +204,48 @@
       <li>プロジェクトはブラウザに自動保存されます。別の端末に持ち運ぶときは「プロジェクト保存」で JSON を書き出してください。</li>
     </ul>
     <form method="dialog"><button class="btn primary">閉じる</button></form>
+  </article>
+</dialog>
+
+<dialog id="color-dialog" class="wide" aria-labelledby="cc-title">
+  <article>
+    <h2 id="cc-title">色見本から色補正を作る</h2>
+    <p class="note">コンビニのシール紙は、画面より色が濃く・くすんで出がちです。実際に印刷した色見本を読み取り、その差を打ち消すように書き出しの色を調整します。</p>
+
+    <section class="cc-step">
+      <h3>1. 色見本を印刷する</h3>
+      <p class="note">今の用紙・印刷方法の設定で、色補正をかけずに書き出します。シールと同じ店・同じ方法（フチありなど）で印刷してください。</p>
+      <button id="btn-cc-chart" class="btn primary">色見本シートを保存（PNG）</button>
+    </section>
+
+    <section class="cc-step">
+      <h3>2. 印刷した色見本を取り込む</h3>
+      <p class="note">スキャンが一番安定します（マルチコピー機のスキャンも使えます）。写真なら明るい場所で真上から撮り、影や照明の映り込みを避けてください。フラッシュは使わないでください。</p>
+      <div class="field">
+        <label for="cc-photo">写真またはスキャン画像</label>
+        <input type="file" id="cc-photo" accept="image/*">
+      </div>
+    </section>
+
+    <section class="cc-step" id="cc-step3" hidden>
+      <h3>3. 4 隅のマークを指定する</h3>
+      <p id="cc-instr" class="warn" role="status" aria-live="polite"></p>
+      <div class="cc-canvas-wrap"><canvas id="cc-canvas" tabindex="0" role="img"></canvas></div>
+      <div class="row cc-actions">
+        <button id="btn-cc-reset" class="btn small">指定をやり直す</button>
+      </div>
+      <p class="note">クリックすると、近くのマークの中心に自動で合わせます。キーボードでは 1〜4 で点を選び、矢印キーで動かします（Shift で大きく、Enter でマークに合わせる）。</p>
+    </section>
+
+    <section class="cc-step" id="cc-step4" hidden>
+      <h3>4. 結果を確かめる</h3>
+      <p id="cc-result" role="status" aria-live="polite"></p>
+      <div id="cc-swatches" class="cc-swatches" role="img"></div>
+      <p class="note">各マスの上半分が意図した色、下半分が印刷された色です。</p>
+      <button id="btn-cc-use" class="btn primary">この補正を使う</button>
+    </section>
+
+    <form method="dialog"><button class="btn">閉じる</button></form>
   </article>
 </dialog>
 

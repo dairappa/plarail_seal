@@ -3,7 +3,9 @@ import { PAPERS, FONTS, LED_SWATCHES, PRESETS, defaultProject, makeItem, itemLab
 import { layoutSheet, rulerLength } from './layout.js';
 import { renderSheet, renderItemThumb, fontsInUse, setImageLoadedCallback, getImage, getEditedImage } from './render.js';
 import { normalizeEdits, makeRecolor, detectBorderColor, colorAt, downscaleDataURL, hasEdits, opaqueRatio } from './imageedit.js';
-import { exportPNG, exportCanvas, printSheet } from './export.js';
+import { exportPNG, exportCanvas, printSheet, colorCorrectionActive } from './export.js';
+import { initColorUI, syncColorPanel } from './colorui.js';
+import { applyProfileToCanvas } from './colorcal.js';
 import { saveLocal, loadLocal, clearLocal, exportProjectJSON, readProjectFile, readImageFile } from './storage.js';
 
 const $ = id => document.getElementById(id);
@@ -77,13 +79,18 @@ function init() {
     ap.value = '';
   });
 
+  const showExport = (canvas, info) => {
+    $('export-img').src = canvas.toDataURL('image/png');
+    $('export-info').textContent = info;
+    $('export-dialog').showModal();
+  };
   $('btn-png').addEventListener('click', async () => {
     await ensureFonts();
     const canvas = await exportPNG(project);
-    $('export-img').src = canvas.toDataURL('image/png');
-    $('export-info').textContent = `${canvas.width}×${canvas.height} px（${project.paper.w}×${project.paper.h} mm, ${project.dpi} dpi, サイズ補正 ${project.scaleK}%）。ネットワークプリントには「写真プリント」として登録してください。`;
-    $('export-dialog').showModal();
+    const cc = colorCorrectionActive(project) ? `、色補正 ${project.colorCorr.strength}%` : '';
+    showExport(canvas, `${canvas.width}×${canvas.height} px（${project.paper.w}×${project.paper.h} mm, ${project.dpi} dpi, サイズ補正 ${project.scaleK}%${cc}）。ネットワークプリントには「写真プリント」として登録してください。`);
   });
+  const colorUI = initColorUI({ getProject: () => project, update, toast, showExport, ensureFonts });
   $('btn-print').addEventListener('click', async () => { await ensureFonts(); printSheet(project); });
   $('btn-save-project').addEventListener('click', () => exportProjectJSON(project));
   $('btn-load').addEventListener('click', () => $('file-project').click());
@@ -157,7 +164,8 @@ function init() {
     get project() { return project; },
     set project(p) { project = p; selectedId = p.items[0]?.id || null; update({ fit: true }); },
     layout: () => layoutSheet(project),
-    exportCanvas: () => exportCanvas(project),
+    exportCanvas: (opts) => exportCanvas(project, opts),
+    colorUI,
     ensureFonts,
     update,
     flush,
@@ -240,6 +248,7 @@ function restoreFocus(key, selectAll) {
 }
 
 function syncSheetForm() {
+  syncColorPanel(project);
   const paper = paperById(project.paper.preset);
   $('paper-preset').value = project.paper.preset;
   $('paper-w').value = project.paper.w;
@@ -801,6 +810,9 @@ function renderPreview() {
   canvas.height = Math.round(project.paper.h * s);
   const ctx = canvas.getContext('2d');
   lastLayout = renderSheet(ctx, project, s, { mode: 'preview' });
+  if (project.colorCorr?.preview && colorCorrectionActive(project)) {
+    applyProfileToCanvas(canvas, project.colorCorr.profile, (project.colorCorr.strength ?? 100) / 100);
+  }
   $('zoom-label').textContent = `${Math.round(zoom * 100)}%`;
   updateLayoutWarning(lastLayout);
 }

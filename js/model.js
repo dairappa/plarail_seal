@@ -37,6 +37,7 @@ export function defaultProject() {
     printMode: 'cvs-border',
     scaleK: p.k.border,
     calib: {},          // 用紙×印刷方法ごとに覚えたサイズ補正 %（例: { 'L:cvs-border': 103.6 }）
+    colorCorr: defaultColorCorr(),
     dpi: 300,
     gap: 1.5,
     bleed: 0.3,
@@ -231,6 +232,11 @@ export function defaultScaleK(project) {
   return project.printMode === 'cvs-borderless' ? p.k.borderless : p.k.border;
 }
 
+/** 色補正の設定。profile は色見本の写真から作る（colorcal.js の fitProfile） */
+export function defaultColorCorr() {
+  return { enabled: false, strength: 100, preview: false, profile: null };
+}
+
 /** 用紙×印刷方法のキー（キャリブレーション結果の保存先） */
 export function calibKey(project) {
   return `${project.paper.preset}:${project.printMode}`;
@@ -254,6 +260,7 @@ export function normalizeProject(raw) {
   const p = { ...d, ...raw };
   p.paper = { ...d.paper, ...(raw.paper || {}) };
   p.calib = { ...(raw.calib || {}) };
+  p.colorCorr = { ...defaultColorCorr(), ...(raw.colorCorr || {}) };
   p.items = (raw.items || []).map(it => {
     const base = it.type === 'sign' ? SIGN_BASE : it.type === 'text' ? TEXT_BASE : IMAGE_BASE;
     const m = JSON.parse(JSON.stringify({ ...base, ...it }));

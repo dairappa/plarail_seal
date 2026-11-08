@@ -1,28 +1,57 @@
 // PNG 書き出し（pHYs で dpi を埋め込み）と印刷
 import { renderSheet } from './render.js';
+import { layoutSheet } from './layout.js';
+import { renderChart, applyProfileToCanvas } from './colorcal.js';
 
-export function exportCanvas(project) {
+/** 色補正が有効か（プロファイルがあり、オンで、強さが 0 より大きい） */
+export function colorCorrectionActive(project) {
+  const cc = project.colorCorr;
+  return !!(cc && cc.enabled && cc.profile && (cc.strength ?? 100) > 0);
+}
+
+/** 書き出し用のキャンバス。opts.correct === false で色補正をかけない */
+export function exportCanvas(project, opts = {}) {
   const s = project.dpi / 25.4;
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(project.paper.w * s);
   canvas.height = Math.round(project.paper.h * s);
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   renderSheet(ctx, project, s, { mode: 'export' });
+  if (opts.correct !== false && colorCorrectionActive(project)) {
+    applyProfileToCanvas(canvas, project.colorCorr.profile, (project.colorCorr.strength ?? 100) / 100);
+  }
+  return canvas;
+}
+
+/** 色見本シート（色補正はかけない。サイズ補正の事前拡大はシールと同じ） */
+export function chartCanvas(project, dpi = 300) {
+  const s = dpi / 25.4;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(project.paper.w * s);
+  canvas.height = Math.round(project.paper.h * s);
+  renderChart(canvas.getContext('2d'), project, layoutSheet({ ...project, ruler: false, items: [] }).area, s);
   return canvas;
 }
 
 export function exportFileName(project, ext) {
   const k = project.scaleK && project.scaleK !== 100 ? `_x${project.scaleK}` : '';
-  return `plarail_seal_${project.paper.preset}_${project.dpi}dpi${k}.${ext}`;
+  const c = colorCorrectionActive(project) ? '_color' : '';
+  return `plarail_seal_${project.paper.preset}_${project.dpi}dpi${k}${c}.${ext}`;
+}
+
+async function savePNG(canvas, dpi, name) {
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  downloadBlob(new Blob([addPhys(buf, dpi)], { type: 'image/png' }), name);
+  return canvas;
 }
 
 export async function exportPNG(project) {
-  const canvas = exportCanvas(project);
-  const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-  const buf = new Uint8Array(await blob.arrayBuffer());
-  const withDpi = addPhys(buf, project.dpi);
-  downloadBlob(new Blob([withDpi], { type: 'image/png' }), exportFileName(project, 'png'));
-  return canvas;
+  return savePNG(exportCanvas(project), project.dpi, exportFileName(project, 'png'));
+}
+
+export async function exportChartPNG(project) {
+  return savePNG(chartCanvas(project, 300), 300, `plarail_seal_colorchart_${project.paper.preset}.png`);
 }
 
 export function downloadBlob(blob, name) {

@@ -1,5 +1,6 @@
 // アクセシビリティテスト: キーボード操作（タブ順・フォーカス維持・一覧のキー操作）とアクセシブルネーム
 import { openApp, makeChecker } from './helpers.mjs';
+import { SIM_SRC } from './colorsim.mjs';
 
 const { page, errors, close } = await openApp();
 const checker = makeChecker();
@@ -197,7 +198,68 @@ await page.waitForTimeout(100);
 const pressedAfter = await page.getAttribute(`[data-key="${pickKey}"]`, 'aria-pressed');
 c('スポイトは Enter で有効、Esc で解除され、フォーカスがボタンに戻る', pressed === 'true' && pressedAfter === 'false' && (await focused()) === pickKey, `${pressed} → ${pressedAfter} focus=${await focused()}`);
 
-// ---------------------------------------------------------------- 9. モバイル幅: 編集 / プレビュー切替
+// ---------------------------------------------------------------- 9. 色補正ダイアログ
+await page.addScriptTag({ content: SIM_SRC });
+const shot = await page.evaluate(async () => {
+  const cal = await import('./js/colorcal.js');
+  const ex = await import('./js/export.js');
+  const app = window.__app, p = app.project;
+  const chart = ex.chartCanvas(p, 150);
+  const s = 150 / 25.4, k = p.scaleK / 100, W = p.paper.w, H = p.paper.h;
+  const f = cal.chartFrame(app.layout().area);
+  const toPx = (u, v) => { const x = (f.x + u * f.w) * s, y = (f.y + v * f.h) * s; return [W * s / 2 + (x - W * s / 2) * k, H * s / 2 + (y - H * s / 2) * k]; };
+  const { photo, pts } = window.__sim.shoot(chart, [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => toPx(u, v)));
+  return { b64: photo.toDataURL('image/png').split(',')[1], w: photo.width, h: photo.height, pts };
+});
+let ccState = await page.evaluate(() => [document.getElementById('cc-enabled').disabled, document.getElementById('cc-status').textContent]);
+c('補正がないうちは「色補正をかける」は押せず、作り方を案内する', ccState[0] === true && ccState[1].includes('まだ補正はありません'), ccState[1]);
+await page.focus('#btn-cc-setup');
+await page.keyboard.press('Enter');
+c('「色見本から補正を作る」でダイアログが開く', await page.evaluate(() => document.getElementById('color-dialog').open));
+await page.setInputFiles('#cc-photo', { name: 'chart.png', mimeType: 'image/png', buffer: Buffer.from(shot.b64, 'base64') });
+await page.waitForFunction(() => !document.getElementById('cc-step3').hidden);
+c('写真を取り込むとマーク指定の画面に進み、画像にフォーカスが移る', (await focused()) === '#cc-canvas');
+
+const clickPhoto = async ([x, y]) => {
+  const loc = page.locator('#cc-canvas');
+  const b = await loc.boundingBox();
+  await loc.click({ position: { x: x / shot.w * b.width, y: y / shot.h * b.height } });
+};
+// わざと 1 と 2 を逆に指定 → 案内が出る
+await clickPhoto(shot.pts[1]); await clickPhoto(shot.pts[0]); await clickPhoto(shot.pts[2]); await clickPhoto(shot.pts[3]);
+let instr = await page.textContent('#cc-instr');
+c('マークの順番を間違えると、正しい順番を案内する', /順番/.test(instr) && await page.evaluate(() => document.getElementById('cc-step4').hidden), instr);
+await page.click('#btn-cc-reset');
+// 少しずらしてクリック（中心への吸着を確かめる）
+for (const [x, y] of shot.pts) await clickPhoto([x + 6, y + 4]);
+await page.waitForFunction(() => !document.getElementById('cc-step4').hidden);
+const res = await page.textContent('#cc-result');
+const m = res.match(/ΔE）は\s*([\d.]+)、補正後の推定は\s*([\d.]+)/);
+c('4 点を指定すると結果が出て、補正でずれが縮む', m && Number(m[2]) < Number(m[1]) * 0.5, res);
+
+// キーボード: 1 で点を選び、矢印で動かす
+await page.focus('#cc-canvas');
+const before1 = await page.evaluate(() => window.__app.colorUI.state.pts[0].slice());
+await page.keyboard.press('1');
+await page.keyboard.press('Shift+ArrowRight');
+const after1 = await page.evaluate(() => window.__app.colorUI.state.pts[0].slice());
+c('キーボード: 1 で点を選び、Shift+→ で大きく動かせる', after1[0] - before1[0] > 5 && Math.abs(after1[1] - before1[1]) < 0.01, `${before1.map(v => v.toFixed(1))} → ${after1.map(v => v.toFixed(1))}`);
+await page.keyboard.press('Enter');   // マークに合わせ直す
+const snapped = await page.evaluate(() => window.__app.colorUI.state.pts[0].slice());
+c('キーボード: Enter で近くのマークの中心に合わせ直す', Math.hypot(snapped[0] - shot.pts[0][0], snapped[1] - shot.pts[0][1]) < 3, snapped.map(v => v.toFixed(1)).join(','));
+
+await page.click('#btn-cc-use');
+await page.waitForTimeout(100);
+ccState = await page.evaluate(() => ({ open: document.getElementById('color-dialog').open, en: window.__app.project.colorCorr.enabled, prof: !!window.__app.project.colorCorr.profile,
+  checked: document.getElementById('cc-enabled').checked, status: document.getElementById('cc-status').textContent }));
+c('「この補正を使う」で補正が有効になり、ダイアログが閉じ、状態が表示される', !ccState.open && ccState.en && ccState.prof && ccState.checked && /ΔE/.test(ccState.status), JSON.stringify(ccState));
+c('ダイアログを閉じるとフォーカスが「色見本から補正を作る」に戻る', (await focused()) === '#btn-cc-setup');
+await page.focus('#cc-enabled');
+await page.keyboard.press('Space');
+await page.waitForTimeout(50);
+c('「書き出しに色補正をかける」を Space でオフにでき、フォーカスが残る', !(await page.evaluate(() => window.__app.project.colorCorr.enabled)) && (await focused()) === '#cc-enabled');
+
+// ---------------------------------------------------------------- 10. モバイル幅: 編集 / プレビュー切替
 await page.setViewportSize({ width: 400, height: 800 });
 await page.waitForTimeout(100);
 const vis = () => page.evaluate(() => ({
