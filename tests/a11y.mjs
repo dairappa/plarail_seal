@@ -228,6 +228,29 @@ await page.waitForTimeout(100);
 lampSt = await page.evaluate(id => ({ n: window.__app.project.items.find(i => i.id === id).lamps.length, focus: document.activeElement.dataset.key }), lampId);
 c('ランプを削除すると「ランプを追加」にフォーカスが移る', lampSt.n === 2 && lampSt.focus === `${lampId}:ランプ:追加`, JSON.stringify(lampSt));
 
+const shapeKey = `${lampId}:ケース（台座）:形`;
+await page.focus(`[data-key="${shapeKey}"]`);
+await page.selectOption(`[data-key="${shapeKey}"]`, 'trapezoid');
+await page.waitForTimeout(100);
+lampSt = await page.evaluate(([id, k]) => ({ focus: document.activeElement.dataset.key, top: !!document.querySelector(`[data-key^="${id}:ケース（台座）:上辺の長さ"]`) }), [lampId, shapeKey]);
+c('ケースの形を台形にすると「上辺の長さ」が出て、フォーカスは形の欄に残る', lampSt.focus === shapeKey && lampSt.top, JSON.stringify(lampSt));
+await page.selectOption(`[data-key="${shapeKey}"]`, 'parallelogram');
+await page.waitForTimeout(100);
+lampSt = await page.evaluate(id => ({ skew: !!document.querySelector(`[data-key^="${id}:ケース（台座）:傾き"]`), lampSkew: !!document.querySelector(`[data-key="${id}:ケース（台座）:ランプも同じ角度で傾ける"]`),
+  top: !!document.querySelector(`[data-key^="${id}:ケース（台座）:上辺の長さ"]`) }), lampId);
+c('平行四辺形にすると「傾き」と「ランプも傾ける」が出て、「上辺の長さ」は消える', lampSt.skew && lampSt.lampSkew && !lampSt.top, JSON.stringify(lampSt));
+const rotKey = await page.evaluate(id => document.querySelector(`[data-key^="${id}:並べ方:全体の回転"]`)?.dataset.key, lampId);
+await page.focus(`[data-key="${rotKey}"]`);
+await page.keyboard.press('Control+A'); await page.keyboard.type('20'); await page.keyboard.press('Tab');
+await page.waitForTimeout(100);
+lampSt = await page.evaluate(id => window.__app.project.items.find(i => i.id === id).rotate, lampId);
+c('「全体の回転」に 20 を入れて Tab で確定できる', lampSt === 20, String(lampSt));
+const unnamedLamp2 = await page.evaluate(() => {
+  const nameOf = el => el.getAttribute('aria-label') || (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.textContent.trim()) || el.closest('label')?.textContent.trim() || (el.textContent || '').trim();
+  return [...document.querySelectorAll('#editor input, #editor select, #editor button')].filter(el => el.getClientRects().length > 0 && !nameOf(el)).map(el => el.dataset.key || el.tagName);
+});
+c('形・傾き・回転の入力にもアクセシブルネームがある', unnamedLamp2.length === 0, unnamedLamp2.join(', '));
+
 // ---------------------------------------------------------------- 9. 色補正ダイアログ
 await page.addScriptTag({ content: SIM_SRC });
 const shot = await page.evaluate(async () => {

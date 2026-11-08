@@ -242,7 +242,33 @@ const red = c => c[0] - c[1] > 40, light = c => c.every(v => v > 200) && c[0] - 
 c('前照灯・尾灯: 左右ペア 2 組で 4 枚並び、半分が鏡写し', lamp.placed === 5 && lamp.mirrored === 2 && lamp.count === 4, JSON.stringify({ placed: lamp.placed, mirrored: lamp.mirrored, count: lamp.count }));
 c('前照灯・尾灯: 1 枚目は左が尾灯・右が前照灯、鏡写しの 2 枚目は逆になる', red(lamp.firstLeft) && light(lamp.firstRight) && light(lamp.secondLeft) && red(lamp.secondRight), JSON.stringify(lamp));
 c('前照灯: 丸目 2 灯のランプの間はケースの色（黒）', lamp.roundGap.every(v => v < 40), JSON.stringify(lamp.roundGap));
-c('前照灯・尾灯のプリセットが 7 種類ある', lamp.names === 7, String(lamp.names));
+c('前照灯・尾灯のプリセットが 10 種類ある', lamp.names === 10, String(lamp.names));
+
+// ケースの形と回転: シール内の決まった位置が「背景（白）」か「ケース（黒）」か
+const shp = await page.evaluate(async () => {
+  const app = window.__app, p = app.project, saved = JSON.stringify(p);
+  const { makeItem, PRESETS } = await import('./js/model.js');
+  const P = id => PRESETS.find(x => x.id === id).item;
+  p.items = [
+    makeItem('lamp', P('lamp-trapezoid')),                                  // 7×3、上辺 72%
+    makeItem('lamp', { ...P('lamp-led-slanted'), pair: 'single' }),         // 7×2、平行四辺形 25°
+    makeItem('lamp', { ...P('lamp-round2'), rotate: 30 }),                  // 6×3 を 30° 回転
+  ];
+  p.marks = 'none'; p.ruler = false; p.scaleK = 100; p.dpi = 600; app.update(); app.flush();
+  const l = app.layout(), S = 600 / 25.4, ctx = app.exportCanvas().getContext('2d');
+  const at = (q, mx, my) => { const d = ctx.getImageData(Math.round((q.x + mx) * S), Math.round((q.y + my) * S), 1, 1).data; return d[0] > 200 ? 'white' : d[0] < 60 ? 'dark' : 'mid'; };
+  const [t, pg, r] = l.placed;
+  const res = {
+    trapTopLeft: at(t, 0.35, 0.3), trapBottomLeft: at(t, 0.6, 2.7), trapTopMid: at(t, 3.5, 0.3),
+    paraTopLeft: at(pg, 0.3, 0.25), paraTopRight: at(pg, 6.1, 0.25), paraBottomLeft: at(pg, 0.9, 1.75), paraBottomRight: at(pg, 6.7, 1.75),
+    rotCorners: [at(r, 0.15, 0.15), at(r, 5.85, 0.15), at(r, 0.15, 2.85), at(r, 5.85, 2.85)], rotCenter: at(r, 3, 1.5),
+  };
+  app.project = JSON.parse(saved);
+  return res;
+});
+c('台形: 上の角は背景、下の角と上辺の中央はケース', shp.trapTopLeft === 'white' && shp.trapBottomLeft === 'dark' && shp.trapTopMid === 'dark', JSON.stringify(shp));
+c('平行四辺形: 右に傾く（左上と右下は背景、右上と左下はケース）', shp.paraTopLeft === 'white' && shp.paraBottomRight === 'white' && shp.paraTopRight === 'dark' && shp.paraBottomLeft === 'dark', JSON.stringify(shp));
+c('回転: 30° 回してもシールの 4 隅からはみ出さず、中央はケース', shp.rotCorners.every(v => v === 'white') && shp.rotCenter === 'dark', JSON.stringify(shp));
 
 // localStorage 保存 → 再読み込みで復元
 await page.waitForTimeout(500);

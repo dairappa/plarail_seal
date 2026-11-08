@@ -96,13 +96,16 @@ export const LAMP_COLORS = {
 export function makeLamp(color = LAMP_COLORS.head) {
   return { color };
 }
+const LAMP_HOUSING = { enabled: true, shape: 'rect', topRatio: 70, skew: 15, color: '#1a1a1a', radius: 30, inset: 0, border: 0, borderColor: '#c0c0c0' };
+const housing = o => ({ ...LAMP_HOUSING, ...o });
 const LAMP_BASE = {
   type: 'lamp', name: '', w: 6, h: 3, copies: 1, pair: 'single',
   bg: '#ffffff', fill: solidFill('#ffffff'),
-  housing: { enabled: true, color: '#1a1a1a', radius: 30, inset: 0, border: 0, borderColor: '#c0c0c0' },
+  // shape: rect 長方形 / trapezoid 台形 / slant 片側が斜め / parallelogram 平行四辺形
+  housing: housing({}),
   lampShape: 'round', lampSize: 70, lampAspect: 1, lampRadius: 20,
-  lampStyle: 'glow', ring: 0, ringColor: '#c0c0c0',
-  arrange: 'row', distribute: 'spread', gap: 20, padding: 12,
+  lampStyle: 'glow', ring: 0, ringColor: '#c0c0c0', lampSkew: true,
+  arrange: 'row', distribute: 'spread', gap: 20, padding: 12, rotate: 0,
   lamps: [makeLamp(LAMP_COLORS.head), makeLamp(LAMP_COLORS.head)],
 };
 
@@ -213,7 +216,7 @@ export const PRESETS = [
     name: '前照灯: 丸目 1 灯（銀の縁）',
     item: {
       ...LAMP_BASE, name: '前照灯 丸目 1 灯', w: 3.5, h: 3.5, copies: 2,
-      housing: { enabled: false, color: '#1a1a1a', radius: 50, inset: 0, border: 0, borderColor: '#c0c0c0' },
+      housing: housing({ enabled: false, color: '#1a1a1a', radius: 50 }),
       lampSize: 100, ring: 14, ringColor: '#c8c8c8', lampStyle: 'lens', padding: 0, lamps: [makeLamp(LAMP_COLORS.head)],
     },
   },
@@ -222,7 +225,7 @@ export const PRESETS = [
     name: '前照灯: 角型 2 灯（黒ケース）',
     item: {
       ...LAMP_BASE, name: '前照灯 角型 2 灯', w: 7, h: 2.6,
-      housing: { enabled: true, color: '#111111', radius: 12, inset: 0, border: 0, borderColor: '#c0c0c0' },
+      housing: housing({ enabled: true, color: '#111111', radius: 12 }),
       lampShape: 'rect', lampAspect: 1.5, lampRadius: 15, lampSize: 68,
     },
   },
@@ -231,7 +234,7 @@ export const PRESETS = [
     name: '前照灯・尾灯: 横並び（左右ペア）',
     item: {
       ...LAMP_BASE, name: '前照灯・尾灯 横並び', w: 5.5, h: 2.5, pair: 'mirror',
-      housing: { enabled: true, color: '#111111', radius: 50, inset: 0, border: 0, borderColor: '#c0c0c0' },
+      housing: housing({ enabled: true, color: '#111111', radius: 50 }),
       lamps: [makeLamp(LAMP_COLORS.tail), makeLamp(LAMP_COLORS.head)],
     },
   },
@@ -240,8 +243,36 @@ export const PRESETS = [
     name: '前照灯・尾灯: 縦並び',
     item: {
       ...LAMP_BASE, name: '前照灯・尾灯 縦並び', w: 2.6, h: 5, copies: 2, arrange: 'column',
-      housing: { enabled: true, color: '#111111', radius: 30, inset: 0, border: 0, borderColor: '#c0c0c0' },
+      housing: housing({ enabled: true, color: '#111111', radius: 30 }),
       lampSize: 80, lamps: [makeLamp(LAMP_COLORS.head), makeLamp(LAMP_COLORS.tail)],
+    },
+  },
+  {
+    id: 'lamp-trapezoid',
+    name: '前照灯: 台形ケース 2 灯',
+    item: {
+      ...LAMP_BASE, name: '前照灯 台形ケース 2 灯', w: 7, h: 3,
+      housing: housing({ shape: 'trapezoid', topRatio: 72, color: '#111111', radius: 14 }),
+      lampSize: 62,
+    },
+  },
+  {
+    id: 'lamp-slant-pair',
+    name: '前照灯・尾灯: 片側が斜めのケース（左右ペア）',
+    item: {
+      ...LAMP_BASE, name: '前照灯・尾灯 斜めケース', w: 6, h: 2.6, pair: 'mirror',
+      housing: housing({ shape: 'slant', topRatio: 78, color: '#111111', radius: 16 }),
+      lampSize: 64, distribute: 'center', gap: 30,
+      lamps: [makeLamp(LAMP_COLORS.tail), makeLamp(LAMP_COLORS.head)],
+    },
+  },
+  {
+    id: 'lamp-led-slanted',
+    name: '前照灯: 傾いた LED ライン（左右ペア）',
+    item: {
+      ...LAMP_BASE, name: '前照灯 傾いた LED ライン', w: 7, h: 2, pair: 'mirror',
+      housing: housing({ shape: 'parallelogram', skew: 25, color: '#111111', radius: 30 }),
+      lampShape: 'pill', lampAspect: 5, lampSize: 55, padding: 16, lamps: [makeLamp(LAMP_COLORS.led)],
     },
   },
   {
@@ -249,7 +280,7 @@ export const PRESETS = [
     name: '前照灯: LED ライン（細長い帯）',
     item: {
       ...LAMP_BASE, name: '前照灯 LED ライン', w: 8, h: 1.6, copies: 2,
-      housing: { enabled: true, color: '#111111', radius: 50, inset: 0, border: 0, borderColor: '#c0c0c0' },
+      housing: housing({ enabled: true, color: '#111111', radius: 50 }),
       lampShape: 'pill', lampAspect: 6, lampSize: 55, padding: 18, lamps: [makeLamp(LAMP_COLORS.led)],
     },
   },

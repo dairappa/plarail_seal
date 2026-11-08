@@ -821,16 +821,25 @@ function renderEditor() {
     row(sa, field('向き', sel([['row', '横に並べる'], ['column', '縦に並べる']], () => it.arrange, v => { it.arrange = v; })),
       field('寄せ方', sel([['spread', '均等に広げる'], ['center', '中央に寄せる']], () => it.distribute, v => { it.distribute = v; })));
     row(sa, field('間隔 %', num(() => it.gap, v => { it.gap = v; }, 1, 0)), field('内側の余白 %', num(() => it.padding, v => { it.padding = v; }, 1, 0)));
+    row(sa, field('全体の回転 °（− で左回り）', num(() => it.rotate || 0, v => { it.rotate = Math.max(-90, Math.min(90, v)); }, 1, -90)));
     const an = document.createElement('p'); an.className = 'note';
-    an.textContent = '大きさはケースの内側の高さ（縦に並べるときは幅）に対する割合です。入りきらないときは自動で縮めます。';
+    an.textContent = '大きさはケースの内側の高さ（縦に並べるときは幅）に対する割合です。入りきらないときは自動で縮めます。回転させるとシールに収まるように全体が小さくなります。';
     sa.appendChild(an);
 
     // ケース
     const sh = sec('ケース（台座）');
     sh.appendChild(check('ケースを付ける', () => it.housing.enabled, v => { it.housing.enabled = v; }));
     if (it.housing.enabled) {
+      row(sh, field('形', sel([['rect', '長方形'], ['trapezoid', '台形'], ['slant', '片側が斜め'], ['parallelogram', '平行四辺形']], () => it.housing.shape || 'rect', v => { it.housing.shape = v; })));
+      const hsh = it.housing.shape || 'rect';
+      if (hsh === 'trapezoid' || hsh === 'slant') {
+        row(sh, field('上辺の長さ %（下辺に対して。100 超で上が広い）', num(() => it.housing.topRatio, v => { it.housing.topRatio = Math.max(10, v); }, 1, 10)));
+      } else if (hsh === 'parallelogram') {
+        row(sh, field('傾き °（− で左に傾く）', num(() => it.housing.skew, v => { it.housing.skew = Math.max(-60, Math.min(60, v)); }, 1, -60)));
+        sh.appendChild(check('ランプも同じ角度で傾ける', () => it.lampSkew !== false, v => { it.lampSkew = v; }));
+      }
       row(sh, color('ケースの色', () => it.housing.color, v => { it.housing.color = v; }));
-      row(sh, field('角の丸み %（50 で両端が丸い）', num(() => it.housing.radius, v => { it.housing.radius = v; }, 1, 0)), field('シールの縁からの余白 %', num(() => it.housing.inset, v => { it.housing.inset = v; }, 1, 0)));
+      row(sh, field('角の丸み %（長方形は 50 で両端が丸い）', num(() => it.housing.radius, v => { it.housing.radius = v; }, 1, 0)), field('シールの縁からの余白 %', num(() => it.housing.inset, v => { it.housing.inset = v; }, 1, 0)));
       row(sh, field('ケースの縁の太さ %', num(() => it.housing.border, v => { it.housing.border = v; }, 1, 0)), color('ケースの縁の色', () => it.housing.borderColor, v => { it.housing.borderColor = v; }));
     }
     backgroundEditor();

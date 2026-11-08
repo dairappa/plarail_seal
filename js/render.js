@@ -504,62 +504,141 @@ export function lampLayout(item, inner) {
   return centers.map(([cx, cy], i) => ({ cx, cy, w, h, color: item.lamps[i].color }));
 }
 
-function drawLampItem(ctx, item, x, y, s) {
-  const W = item.w * s, H = item.h * s, X = x * s, Y = y * s;
-  const hs = item.housing || {};
-  // ケース
-  let box = { x: X, y: Y, w: W, h: H };
-  if (hs.enabled) {
-    const ins = Math.min(W, H) * (hs.inset || 0) / 100;
-    box = { x: X + ins, y: Y + ins, w: W - 2 * ins, h: H - 2 * ins };
-    const r = Math.min(box.w, box.h) / 2 * Math.min(100, hs.radius || 0) / 100 * 2;
-    roundRect(ctx, box.x, box.y, box.w, box.h, Math.min(r, Math.min(box.w, box.h) / 2));
-    ctx.fillStyle = hs.color || '#111111'; ctx.fill();
-    const bw = Math.min(box.w, box.h) * (hs.border || 0) / 100;
-    if (bw > 0) {
-      ctx.lineWidth = bw; ctx.strokeStyle = hs.borderColor || '#c0c0c0';
-      roundRect(ctx, box.x + bw / 2, box.y + bw / 2, box.w - bw, box.h - bw, Math.max(0, Math.min(r, Math.min(box.w, box.h) / 2) - bw / 2));
-      ctx.stroke();
-      box = { x: box.x + bw, y: box.y + bw, w: box.w - 2 * bw, h: box.h - 2 * bw };
-    }
+/** 角を丸めた多角形の輪郭 */
+function roundedPoly(ctx, pts, r) {
+  const n = pts.length;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n];
+    // 隣の辺の半分より大きくは丸めない
+    const rr = Math.max(0, Math.min(r, Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) / 2, Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 2));
+    const a = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
+    if (i === 0) ctx.moveTo(a[0], a[1]);
+    ctx.arcTo(p1[0], p1[1], p2[0], p2[1], rr);
   }
-  // ランプを並べる内側
-  const pad = Math.min(box.w, box.h) * (item.padding ?? 12) / 100;
-  const inner = { x: box.x + pad, y: box.y + pad, w: box.w - 2 * pad, h: box.h - 2 * pad };
-  for (const L of lampLayout(item, inner)) {
-    const shape = item.lampShape || 'round';
-    // 縁
-    const ringW = Math.min(L.w, L.h) * (item.ring || 0) / 100;
-    if (ringW > 0) {
-      lampPath(ctx, shape, L.cx, L.cy, L.w, L.h, item.lampRadius);
-      ctx.fillStyle = item.ringColor || '#c0c0c0'; ctx.fill();
-    }
-    const w = L.w - 2 * ringW, h = L.h - 2 * ringW;
-    if (w <= 0 || h <= 0) continue;
-    lampPath(ctx, shape, L.cx, L.cy, w, h, item.lampRadius);
-    const style = item.lampStyle || 'glow';
-    if (style === 'glow') {
-      // 中心が白く飛んで、縁に向かって色が濃くなる
-      const R = Math.max(w, h) / 2;
-      const g = ctx.createRadialGradient(L.cx, L.cy, 0, L.cx, L.cy, R);
-      g.addColorStop(0, mix(L.color, '#ffffff', 0.75));
-      g.addColorStop(0.55, L.color);
-      g.addColorStop(1, mix(L.color, '#000000', 0.18));
-      ctx.fillStyle = g;
-    } else {
-      ctx.fillStyle = L.color;
-    }
-    ctx.fill();
-    if (style === 'lens') {
-      // レンズの映り込み（左上の小さなハイライト）
+  ctx.closePath();
+}
+
+/**
+ * ケースの形（中心が原点のローカル座標、px）。
+ *   rect: 長方形 / trapezoid: 左右対称の台形 / slant: 片側（右）が斜め / parallelogram: 平行四辺形（せん断で描く）
+ * topRatio: 上辺の長さ ÷ 下辺の長さ（%）。100 を超えると上が広い
+ */
+export function housingGeometry(shape, w, h, topRatio) {
+  const t = Math.max(10, topRatio ?? 70) / 100;
+  const wTop = t <= 1 ? w * t : w, wBot = t <= 1 ? w : w / t;
+  let pts = null;
+  if (shape === 'trapezoid') pts = [[-wTop / 2, -h / 2], [wTop / 2, -h / 2], [wBot / 2, h / 2], [-wBot / 2, h / 2]];
+  else if (shape === 'slant') pts = [[-w / 2, -h / 2], [-w / 2 + wTop, -h / 2], [-w / 2 + wBot, h / 2], [-w / 2, h / 2]];
+  /** 高さ y での左右の端 */
+  const spanAt = yy => {
+    if (!pts) return [-w / 2, w / 2];
+    const u = (yy + h / 2) / h;   // 0: 上辺, 1: 下辺
+    const L = pts[0][0] + (pts[3][0] - pts[0][0]) * u, R = pts[1][0] + (pts[2][0] - pts[1][0]) * u;
+    return [L, R];
+  };
+  return { pts, spanAt };
+}
+
+function drawLampItem(ctx, item, x, y, s) {
+  const W = item.w * s, H = item.h * s;
+  const hs = item.housing || {};
+  const shape = hs.enabled ? (hs.shape || 'rect') : 'rect';
+  const ins = hs.enabled ? Math.min(W, H) * (hs.inset || 0) / 100 : 0;
+  const availW = W - 2 * ins, availH = H - 2 * ins;
+  // 全体の回転。回したときにシールからはみ出さないよう縮める
+  const rot = Math.max(-90, Math.min(90, item.rotate || 0)) * Math.PI / 180;
+  let hw = availW, hh = availH;
+  if (rot) {
+    const c = Math.abs(Math.cos(rot)), sn = Math.abs(Math.sin(rot));
+    const k = Math.min(1, availW / (hw * c + hh * sn), availH / (hw * sn + hh * c));
+    hw *= k; hh *= k;
+  }
+  // 平行四辺形: 横方向にせん断する。外接幅が変わらないよう本体の幅を縮める
+  const skew = shape === 'parallelogram' ? Math.tan(Math.max(-60, Math.min(60, hs.skew ?? 15)) * Math.PI / 180) : 0;
+  const bodyW = Math.max(1, hw - hh * Math.abs(skew));
+  const geo = housingGeometry(shape, bodyW, hh, hs.topRatio);
+  const shapePath = r => {
+    if (geo.pts) roundedPoly(ctx, geo.pts, r);
+    else roundRect(ctx, -bodyW / 2, -hh / 2, bodyW, hh, Math.min(r, Math.min(bodyW, hh) / 2));
+  };
+
+  ctx.save();
+  ctx.translate(x * s + W / 2, y * s + H / 2);
+  if (rot) ctx.rotate(rot);
+  const unskewed = ctx.getTransform();
+  if (skew) ctx.transform(1, 0, -skew, 1, 0, 0);
+
+  // ケース
+  let bw = 0;
+  if (hs.enabled) {
+    const r = Math.min(bodyW, hh) * Math.min(100, hs.radius || 0) / 100;
+    shapePath(r);
+    ctx.fillStyle = hs.color || '#111111'; ctx.fill();
+    bw = Math.min(bodyW, hh) * (hs.border || 0) / 100;
+    if (bw > 0) {
+      // 輪郭の内側だけに縁を描く（クリップして 2 倍の太さで線を引く）
       ctx.save();
-      lampPath(ctx, shape, L.cx, L.cy, w, h, item.lampRadius); ctx.clip();
-      ctx.fillStyle = 'rgba(255,255,255,0.75)';
-      ctx.beginPath(); ctx.ellipse(L.cx - w * 0.18, L.cy - h * 0.2, w * 0.16, h * 0.11, -0.5, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = mix(L.color, '#000000', 0.3); ctx.lineWidth = Math.max(0.5, Math.min(w, h) * 0.06);
-      lampPath(ctx, shape, L.cx, L.cy, w, h, item.lampRadius); ctx.stroke();
+      shapePath(r); ctx.clip();
+      shapePath(r); ctx.lineWidth = bw * 2; ctx.strokeStyle = hs.borderColor || '#c0c0c0'; ctx.stroke();
       ctx.restore();
     }
+  }
+
+  // ランプを並べる内側。台形などは、ランプの帯の上端と下端で一番狭い幅に収める
+  const pad = Math.min(bodyW, hh) * (item.padding ?? 12) / 100;
+  const top = -hh / 2 + bw + pad, bottom = hh / 2 - bw - pad;
+  const row = item.arrange !== 'column';
+  const band = row ? (bottom - top) * Math.min(100, Math.max(1, item.lampSize ?? 70)) / 100 : bottom - top;
+  const y0 = row ? -band / 2 : top, y1 = row ? band / 2 : bottom;
+  const a = geo.spanAt(y0), b = geo.spanAt(y1);
+  const left = Math.max(a[0], b[0]) + bw + pad, right = Math.min(a[1], b[1]) - bw - pad;
+  const inner = { x: left, y: top, w: right - left, h: bottom - top };
+
+  const lamps = lampLayout(item, inner);
+  if (skew && item.lampSkew === false) {
+    // ランプは傾けず、位置だけケースに合わせる
+    ctx.setTransform(unskewed);
+    for (const L of lamps) drawLamp(ctx, item, { ...L, cx: L.cx - skew * L.cy });
+  } else {
+    for (const L of lamps) drawLamp(ctx, item, L);
+  }
+  ctx.restore();
+}
+
+/** ランプ 1 つ（縁・本体・見た目） */
+function drawLamp(ctx, item, L) {
+  const shape = item.lampShape || 'round';
+  const ringW = Math.min(L.w, L.h) * (item.ring || 0) / 100;
+  if (ringW > 0) {
+    lampPath(ctx, shape, L.cx, L.cy, L.w, L.h, item.lampRadius);
+    ctx.fillStyle = item.ringColor || '#c0c0c0'; ctx.fill();
+  }
+  const w = L.w - 2 * ringW, h = L.h - 2 * ringW;
+  if (w <= 0 || h <= 0) return;
+  lampPath(ctx, shape, L.cx, L.cy, w, h, item.lampRadius);
+  const style = item.lampStyle || 'glow';
+  if (style === 'glow') {
+    // 中心が白く飛んで、縁に向かって色が濃くなる
+    const R = Math.max(w, h) / 2;
+    const g = ctx.createRadialGradient(L.cx, L.cy, 0, L.cx, L.cy, R);
+    g.addColorStop(0, mix(L.color, '#ffffff', 0.75));
+    g.addColorStop(0.55, L.color);
+    g.addColorStop(1, mix(L.color, '#000000', 0.18));
+    ctx.fillStyle = g;
+  } else {
+    ctx.fillStyle = L.color;
+  }
+  ctx.fill();
+  if (style === 'lens') {
+    // レンズの映り込み（左上の小さなハイライト）と輪郭
+    ctx.save();
+    lampPath(ctx, shape, L.cx, L.cy, w, h, item.lampRadius); ctx.clip();
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.beginPath(); ctx.ellipse(L.cx - w * 0.18, L.cy - h * 0.2, w * 0.16, h * 0.11, -0.5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = mix(L.color, '#000000', 0.3); ctx.lineWidth = Math.max(0.5, Math.min(w, h) * 0.06);
+    lampPath(ctx, shape, L.cx, L.cy, w, h, item.lampRadius); ctx.stroke();
+    ctx.restore();
   }
 }
 
