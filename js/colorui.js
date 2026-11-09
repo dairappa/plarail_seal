@@ -2,7 +2,7 @@
 import { samplePatches, fitProfile, snapToMarker, quadIsValid, homographyFromUnitSquare, patchRect, CHART_PATCHES, rgbToHex,
   VISUAL_PATCHES, visualStart, visualGrid, visualPick, visualSamples, visualAxisLabels, visualFineness,
   visualSliderSpec, visualFromSliders, visualToSliders, visualSetCenter, applyProfileToCanvas } from './colorcal.js';
-import { exportChartPNG, chartCanvas, savePNGCanvas } from './export.js';
+import { exportChartPNG, chartCanvas, savePNGCanvas, correctImageFile, correctedFileName } from './export.js';
 import { paperById } from './model.js';
 
 const $ = id => document.getElementById(id);
@@ -112,6 +112,24 @@ export function initColorUI(api) {
     applyProfileToCanvas(canvas, p.colorCorr.profile, (p.colorCorr.strength ?? 100) / 100);
     await savePNGCanvas(canvas, 300, `plarail_seal_colorchart_${p.paper.preset}_corrected.png`);
     app.showExport(canvas, `補正をかけた色見本（${p.colorCorr.strength}%）。補正なしの色見本と同じ方法で印刷し、画面の色に近づいたか見比べてください。`);
+  });
+
+  // 画像ファイルに色補正をかける（前に書き出した PNG など）
+  $('btn-cc-files').addEventListener('click', () => $('cc-files').click());
+  $('cc-files').addEventListener('change', async e => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length) return;
+    const p = app.getProject();
+    if (!p.colorCorr.profile) return;
+    const strength = (p.colorCorr.strength ?? 100) / 100;
+    app.toast(`${files.length} 枚に色補正をかけています…`);
+    const results = [];
+    for (const f of files) {
+      try { results.push(await correctImageFile(f, p.colorCorr.profile, strength)); }
+      catch (err) { results.push({ name: f.name, error: true }); }
+    }
+    showFileResults(results, p.colorCorr.strength ?? 100);
   });
 
   // 目で合わせる
@@ -404,6 +422,53 @@ function renderPhoto() {
 
 }
 
+/** 画像ファイルの補正結果: 補正前と補正後を並べ、1 枚ずつ・まとめて保存できるようにする */
+function showFileResults(results, strengthPct) {
+  const list = $('cc-files-list');
+  list.innerHTML = '';
+  const ok = results.filter(r => !r.error);
+  const thumb = src => {
+    const c = document.createElement('canvas');
+    const k = Math.min(1, 520 / Math.max(src.width, src.height));
+    c.width = Math.max(1, Math.round(src.width * k)); c.height = Math.max(1, Math.round(src.height * k));
+    c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+    return c;
+  };
+  const save = r => savePNGCanvas(r.after, r.dpi || 300, correctedFileName(r.name));
+  results.forEach((r, i) => {
+    const box = document.createElement('section'); box.className = 'cc-file';
+    const h = document.createElement('h3'); h.textContent = r.name; h.id = `cc-file-${i}`;
+    box.setAttribute('aria-labelledby', h.id);
+    box.appendChild(h);
+    if (r.error) {
+      const p = document.createElement('p'); p.className = 'warn';
+      p.textContent = 'この画像は読み込めませんでした。PNG か JPEG を選んでください。';
+      box.appendChild(p); list.appendChild(box); return;
+    }
+    const pair = document.createElement('div'); pair.className = 'cc-file-pair';
+    for (const [cv, cap] of [[r.before, '補正前'], [r.after, '補正後']]) {
+      const fig = document.createElement('figure');
+      const t = thumb(cv); t.setAttribute('role', 'img'); t.setAttribute('aria-label', `${r.name} の${cap}`);
+      const fc = document.createElement('figcaption'); fc.textContent = cap;
+      fig.append(t, fc); pair.appendChild(fig);
+    }
+    box.appendChild(pair);
+    const row = document.createElement('div'); row.className = 'row';
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small';
+    b.textContent = '保存'; b.setAttribute('aria-label', `「${correctedFileName(r.name)}」を保存`);
+    b.addEventListener('click', () => save(r));
+    const meta = document.createElement('span'); meta.className = 'meta';
+    meta.textContent = `${r.after.width}×${r.after.height} px・${r.dpi ? `${r.dpi} dpi（元のまま）` : '解像度の記録なし（300 dpi として保存）'}`;
+    row.append(b, meta); box.appendChild(row);
+    list.appendChild(box);
+  });
+  $('cc-files-note').textContent = `色補正 ${strengthPct}% をかけました。ピクセル数と解像度は元の画像のままなので、印刷の寸法は変わりません。紙の白とそれに近い色、透明な部分はそのまま残します。保存すると「元の名前_color.png」になります。`;
+  $('btn-cc-files-all').hidden = ok.length < 2;
+  $('btn-cc-files-all').onclick = async () => { for (const r of ok) await save(r); };
+  $('cc-files-dialog').showModal();
+  (ok.length >= 2 ? $('btn-cc-files-all') : list.querySelector('button'))?.focus();
+}
+
 /** 用紙欄の色補正の表示を同期 */
 export function syncColorPanel(project) {
   const cc = project.colorCorr;
@@ -415,6 +480,7 @@ export function syncColorPanel(project) {
   $('cc-preview').checked = !!cc.preview;
   $('cc-preview').disabled = !pr;
   $('btn-cc-verify').disabled = !pr;
+  $('btn-cc-files').disabled = !pr;
   let t;
   if (!pr) t = 'まだ補正はありません。色見本を印刷し、その写真から補正を作ります。';
   else {

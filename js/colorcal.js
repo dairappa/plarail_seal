@@ -608,21 +608,29 @@ export function correctColor(profile, rgb, strength = 1) {
   return out.map((v, k) => Math.max(0, Math.min(255, rgb[k] + (v - rgb[k]) * strength)));
 }
 
-/** 画像全体に補正をかける（その場で書き換え）。純白（紙の色）は変えない。同じ色は 1 回だけ計算する */
-export function applyProfile(img, profile, strength = 1) {
+/**
+ * 画像全体に補正をかける（その場で書き換え）。純白（紙の色）と透明な画素は変えない。同じ色は 1 回だけ計算する。
+ * opts.paperRamp: ほぼ白（いちばん暗いチャンネルが 240 以上）を紙の色に近いとみなし、白に近いほど補正を弱める。
+ *   JPEG の背景のような「ほぼ白」に補正がかかって、うっすらインクが乗るのを防ぐ
+ */
+export function applyProfile(img, profile, strength = 1, opts = {}) {
   if (!profile || strength <= 0) return;
   const lut = profileLUT(profile);
   const s = Math.min(1, strength);
+  const ramp = !!opts.paperRamp;
   const d = img.data;
   const memo = new Map();
   for (let o = 0; o < d.length; o += 4) {
+    if (d[o + 3] === 0) continue;
     const r = d[o], g = d[o + 1], b = d[o + 2];
     if (r === 255 && g === 255 && b === 255) continue;
     const key = (r << 16) | (g << 8) | b;
     let v = memo.get(key);
     if (!v) {
       const c = lookup(lut, r, g, b);
-      v = [r + (c[0] - r) * s, g + (c[1] - g) * s, b + (c[2] - b) * s];
+      const lo = Math.min(r, g, b);
+      const k = s * (ramp && lo >= 240 ? (255 - lo) / 15 : 1);
+      v = [r + (c[0] - r) * k, g + (c[1] - g) * k, b + (c[2] - b) * k];
       if (memo.size < 200000) memo.set(key, v);
     }
     d[o] = v[0]; d[o + 1] = v[1]; d[o + 2] = v[2];   // Uint8ClampedArray が丸めと範囲を処理
@@ -630,9 +638,9 @@ export function applyProfile(img, profile, strength = 1) {
 }
 
 /** キャンバス全体に補正をかける */
-export function applyProfileToCanvas(canvas, profile, strength = 1) {
+export function applyProfileToCanvas(canvas, profile, strength = 1, opts = {}) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  applyProfile(img, profile, strength);
+  applyProfile(img, profile, strength, opts);
   ctx.putImageData(img, 0, 0);
 }

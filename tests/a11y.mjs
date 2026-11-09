@@ -399,6 +399,23 @@ c('ダイアログを閉じるとフォーカスが「色見本から補正を�
 await page.focus('#cc-enabled');
 await page.keyboard.press('Space');
 await page.waitForTimeout(50);
+// 画像ファイルに色補正をかける（補正があるときだけ押せる）
+const filesBtn = await page.evaluate(() => !document.getElementById('btn-cc-files').disabled);
+c('補正を作ると「画像ファイルに色補正をかける」が押せる', filesBtn);
+const pngs = await page.evaluate(async () => {
+  const mk = async col => { const c = document.createElement('canvas'); c.width = 30; c.height = 20; const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 30, 20); x.fillStyle = col; x.fillRect(5, 5, 20, 10);
+    return c.toDataURL('image/png').split(',')[1]; };
+  return [await mk('#c8102e'), await mk('#1d3f8f')];
+});
+await page.setInputFiles('#cc-files', [{ name: 'a.png', mimeType: 'image/png', buffer: Buffer.from(pngs[0], 'base64') }, { name: 'b.png', mimeType: 'image/png', buffer: Buffer.from(pngs[1], 'base64') }]);
+await page.waitForFunction(() => document.getElementById('cc-files-dialog').open);
+const fd = await page.evaluate(() => ({ entries: document.querySelectorAll('#cc-files-list .cc-file').length, focus: document.activeElement.id,
+  names: [...document.querySelectorAll('#cc-files-list button')].map(b => b.getAttribute('aria-label')), imgs: [...document.querySelectorAll('#cc-files-list canvas')].map(c => c.getAttribute('aria-label')) }));
+c('画像を 2 枚選ぶと、補正前後を並べた画面が開き、「すべて保存」にフォーカスが移る', fd.entries === 2 && fd.focus === 'btn-cc-files-all', JSON.stringify(fd));
+c('保存ボタンと補正前後の画像に名前がある', fd.names.every(n => /_color\.png/.test(n)) && fd.imgs.length === 4 && fd.imgs.every(Boolean), fd.names.join(' / '));
+await page.keyboard.press('Escape');
+await page.waitForTimeout(50);
+
 c('「書き出しに色補正をかける」を Space でオフにでき、フォーカスが残る', !(await page.evaluate(() => window.__app.project.colorCorr.enabled)) && (await focused()) === '#cc-enabled');
 
 // ---------------------------------------------------------------- 10. モバイル幅: 編集 / プレビュー切替

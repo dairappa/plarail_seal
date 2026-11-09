@@ -98,6 +98,8 @@
         <div class="row cc-panel-actions">
           <button id="btn-cc-setup" class="btn">色見本から補正を作る…</button>
           <button id="btn-cc-verify" class="btn" disabled>確認用の色見本（補正あり）</button>
+          <button id="btn-cc-files" class="btn" disabled>画像ファイルに色補正をかける…</button>
+          <input type="file" id="cc-files" accept="image/png,image/jpeg,image/webp" multiple hidden aria-label="色補正をかける画像ファイル">
         </div>
       </div>
     </section>
@@ -300,6 +302,16 @@
       <button id="btn-cc-use" class="btn primary">この補正を使う</button>
     </section>
 
+    <form method="dialog"><button class="btn">閉じる</button></form>
+  </article>
+</dialog>
+
+<dialog id="cc-files-dialog" class="wide" aria-labelledby="cc-files-title">
+  <article>
+    <h2 id="cc-files-title">画像ファイルに色補正をかけました</h2>
+    <p class="note" id="cc-files-note"></p>
+    <div class="row cc-actions"><button id="btn-cc-files-all" class="btn primary">すべて保存</button></div>
+    <div id="cc-files-list" class="cc-files-list"></div>
     <form method="dialog"><button class="btn">閉じる</button></form>
   </article>
 </dialog>

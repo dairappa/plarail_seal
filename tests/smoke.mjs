@@ -256,6 +256,35 @@ c('実機: 目で合わせる候補が、大きくずれた印刷色（35 番 Δ
   rr.reach.map(x => `${x.no}番 ずれ${x.far.toFixed(0)}→残り${x.err.toFixed(1)}（${x.n}回）`).join(', '));
 c('スライダー: 明るさ・鮮やかさ・色合いの値と色を行き来しても同じ色になる', rr.back < 1, `${rr.back.toFixed(2)} ${JSON.stringify(rr.sv)}`);
 
+// 画像ファイルに色補正をかける: 寸法・解像度・紙の白・透明部分は保ち、色の部分だけ変える
+const fileRes = await page.evaluate(async real => {
+  const cal = await import('./js/colorcal.js');
+  const ex = await import('./js/export.js');
+  const samples = real.patches.map((x, i) => ({ target: cal.hexToRgb(x.target), kind: cal.CHART_PATCHES[i].kind, raw: cal.hexToRgb(x.printed) }));
+  const prof = cal.fitProfile(samples);
+  const c = document.createElement('canvas'); c.width = 60; c.height = 40;
+  const x = c.getContext('2d');
+  x.fillStyle = '#ffffff'; x.fillRect(0, 0, 60, 40);
+  x.fillStyle = '#c8102e'; x.fillRect(5, 5, 20, 20);
+  x.fillStyle = 'rgb(252,252,250)'; x.fillRect(30, 5, 10, 10);
+  x.fillStyle = '#808080'; x.fillRect(30, 20, 10, 10);
+  x.clearRect(45, 25, 10, 10);
+  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  const png = ex.addPhys(new Uint8Array(await blob.arrayBuffer()), 600);
+  const file = new File([png], 'sticker.png', { type: 'image/png' });
+  const r = await ex.correctImageFile(file, prof, 1);
+  const px = (cv, X, Y) => [...cv.getContext('2d').getImageData(X, Y, 1, 1).data];
+  const want = cal.correctColor(prof, cal.hexToRgb('#c8102e'), 1);
+  const plain = new Uint8Array(await blob.arrayBuffer());
+  return { size: [r.after.width, r.after.height], dpi: r.dpi, noDpi: ex.readDpi(plain), name: ex.correctedFileName('sticker.png'),
+    white: px(r.after, 1, 1), nearWhite: [px(r.before, 32, 7), px(r.after, 32, 7)], red: px(r.after, 10, 10), want: want.map(Math.round),
+    gray: [px(r.before, 32, 22), px(r.after, 32, 22)], clear: px(r.after, 50, 30)[3] };
+}, real);
+c('画像ファイルの色補正: ピクセル数と解像度（600 dpi）はそのまま、保存名は _color.png', fileRes.size.join('x') === '60x40' && fileRes.dpi === 600 && fileRes.noDpi === null && fileRes.name === 'sticker_color.png', JSON.stringify(fileRes));
+c('画像ファイルの色補正: 紙の白・ほぼ白・透明な部分は変えず、色の部分は補正表どおりに変わる',
+  fileRes.white.slice(0, 3).every(v => v === 255) && fileRes.nearWhite[1].slice(0, 3).every((v, i) => Math.abs(v - fileRes.nearWhite[0][i]) <= 1) && fileRes.clear === 0
+  && fileRes.red.slice(0, 3).every((v, i) => Math.abs(v - fileRes.want[i]) <= 2) && fileRes.gray[1].slice(0, 3).some((v, i) => Math.abs(v - fileRes.gray[0][i]) > 3), JSON.stringify(fileRes));
+
 c('色見本: マークのクリックが少しずれても中心に合わせる', cc.snapErr < 2.5, `ずれ ${cc.snapErr.toFixed(2)} px`);
 c('色補正: 印刷のずれが大きく縮む（平均 ΔE）', cc.after < cc.before * 0.4, `${cc.before.toFixed(1)} → ${cc.after.toFixed(1)}（読み取り時の推定 ${cc.fitBefore} → ${cc.fitAfter}）`);
 c('色補正: 純白（紙の色）は変えない', cc.white.every(v => v >= 254.5), JSON.stringify(cc.white));
